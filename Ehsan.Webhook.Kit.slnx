@@ -1,1 +1,34 @@
-<Solution />
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/WebhookKit.Abstractions/WebhookKit.Abstractions.csproj" />
+    <Project Path="src/WebhookKit.Core/WebhookKit.Core.csproj" />
+    <Project Path="src/WebhookKit.AspNetCore/WebhookKit.AspNetCore.csproj" />
+    <Project Path="src/WebhookKit.Redis/WebhookKit.Redis.csproj" />
+    <Project Path="src/WebhookKit.EntityFrameworkCore/WebhookKit.EntityFrameworkCore.csproj" />
+    <Project Path="src/WebhookKit.Testing/WebhookKit.Testing.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/WebhookKit.Abstractions.Tests/WebhookKit.Abstractions.Tests.csproj" />
+    <Project Path="tests/WebhookKit.Core.Tests/WebhookKit.Core.Tests.csproj" />
+    <Project Path="tests/WebhookKit.AspNetCore.Tests/WebhookKit.AspNetCore.Tests.csproj" />
+    <Project Path="tests/WebhookKit.Redis.Tests/WebhookKit.Redis.Tests.csproj" />
+    <Project Path="tests/WebhookKit.EntityFrameworkCore.Tests/WebhookKit.EntityFrameworkCore.Tests.csproj" />
+    <Project Path="tests/WebhookKit.IntegrationTests/WebhookKit.IntegrationTests.csproj" />
+  </Folder>
+  <Folder Name="/samples/">
+    <Project Path="samples/MinimalApi/MinimalApi.csproj" />
+    <Project Path="samples/Mvc/Mvc.csproj" />
+    <Project Path="samples/Redis/Redis.csproj" />
+    <Project Path="samples/EntityFrameworkCore/EntityFrameworkCore.csproj" />
+  </Folder>
+  <Folder Name="/benchmarks/">
+    <Project Path="benchmarks/WebhookKit.Benchmarks/WebhookKit.Benchmarks.csproj" />
+  </Folder>
+  <Folder Name="/solution-items/">
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Packages.props" />
+    <File Path="README.md" />
+    <File Path="LICENSE.txt" />
+    <File Path="Docs/WEBHOOKKIT.md" />
+  </Folder>
+</Solution>
