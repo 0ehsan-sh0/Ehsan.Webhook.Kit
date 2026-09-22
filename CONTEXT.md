@@ -46,11 +46,20 @@ A comparison routine (`CryptographicOperations.FixedTimeEquals`) where compariso
 ### Timestamp Verification & Replay Window
 Validation that the delivery timestamp supplied in provider headers is within an acceptable temporal tolerance window (e.g., ±5 minutes of the current system clock). Prevents adversaries from intercepting and replaying previously valid webhook transmissions.
 
+### Timestamp Verifier (`IWebhookTimestampVerifier`)
+A dedicated verification component that parses timestamp headers (Unix seconds, milliseconds, or ISO-8601) and validates temporal freshness against `IWebhookClock` within the provider's configured replay tolerance window.
+
 ### Clock Abstraction (`IWebhookClock`)
 A deterministic time provider that abstracts `DateTimeOffset.UtcNow` across all validation, timestamp checks, and storage timestamps, enabling zero-flakiness automated time testing.
 
 ### Secret Rotation
 The security practice of supporting multiple valid cryptographic secrets simultaneously (current secret and upcoming secret) during key changeover windows, preventing downtime during credential rotations.
+
+### Payload Size Guard (`WebhookPayloadTooLargeException`)
+A security mechanism in the body reader that monitors incoming byte stream lengths and aborts reading immediately if the payload exceeds `MaxRequestBodySizeBytes`, throwing `WebhookPayloadTooLargeException` to trigger an HTTP 413 (Payload Too Large) response before memory can be exhausted.
+
+### Composite Extractor
+An extractor strategy (`CompositeWebhookEventIdExtractor`, `CompositeWebhookEventTypeExtractor`) that chains multiple extraction mechanisms—attempting fast header extraction first, and falling back to JSON payload traversal when headers are absent.
 
 ---
 
