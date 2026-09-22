@@ -1,0 +1,41 @@
+// Copyright (c) Ehsan. Licensed under the MIT License.
+using Microsoft.Extensions.Options;
+using WebhookKit.Abstractions;
+using WebhookKit.Core.Options;
+
+namespace WebhookKit.Core.Extractors;
+
+/// <summary>
+/// Extracts event type from HTTP request headers using the configured provider header name.
+/// </summary>
+public sealed class HeaderEventTypeExtractor : IWebhookEventTypeExtractor
+{
+    private readonly IOptions<WebhookKitOptions> _options;
+
+    public HeaderEventTypeExtractor(IOptions<WebhookKitOptions> options)
+    {
+        _options = options ?? throw new ArgumentNullException(nameof(options));
+    }
+
+    public ValueTask<string?> ExtractAsync(WebhookVerificationContext context, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        if (!_options.Value.Providers.TryGetValue(context.Provider, out var providerOptions) ||
+            string.IsNullOrWhiteSpace(providerOptions.EventTypeHeaderName))
+        {
+            return ValueTask.FromResult<string?>(null);
+        }
+
+        if (context.Headers.TryGetValue(providerOptions.EventTypeHeaderName, out var values))
+        {
+            var value = values.FirstOrDefault(v => !string.IsNullOrWhiteSpace(v))?.Trim();
+            if (!string.IsNullOrEmpty(value))
+            {
+                return ValueTask.FromResult<string?>(value);
+            }
+        }
+
+        return ValueTask.FromResult<string?>(null);
+    }
+}

@@ -1,5 +1,6 @@
 // Copyright (c) Ehsan. Licensed under the MIT License.
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using WebhookKit.Abstractions;
 using WebhookKit.Core.Clocks;
@@ -34,6 +35,27 @@ public static class WebhookKitServiceCollectionExtensions
 
         services.AddSingleton<IValidateOptions<WebhookKitOptions>, WebhookKitOptionsValidator>();
         services.AddSingleton<IWebhookClock, SystemWebhookClock>();
+
+        // Verifiers
+        services.TryAddSingleton<IWebhookSignatureVerifier, Verifiers.HmacSignatureVerifier>();
+        services.TryAddSingleton<IWebhookTimestampVerifier, Verifiers.WebhookTimestampVerifier>();
+
+        // Extractors
+        services.TryAddSingleton<Extractors.HeaderEventIdExtractor>();
+        services.TryAddSingleton<Extractors.JsonEventIdExtractor>();
+        services.TryAddSingleton<IWebhookEventIdExtractor>(sp => new Extractors.CompositeWebhookEventIdExtractor(
+        [
+            sp.GetRequiredService<Extractors.HeaderEventIdExtractor>(),
+            sp.GetRequiredService<Extractors.JsonEventIdExtractor>()
+        ]));
+
+        services.TryAddSingleton<Extractors.HeaderEventTypeExtractor>();
+        services.TryAddSingleton<Extractors.JsonEventTypeExtractor>();
+        services.TryAddSingleton<IWebhookEventTypeExtractor>(sp => new Extractors.CompositeWebhookEventTypeExtractor(
+        [
+            sp.GetRequiredService<Extractors.HeaderEventTypeExtractor>(),
+            sp.GetRequiredService<Extractors.JsonEventTypeExtractor>()
+        ]));
 
         return services;
     }
