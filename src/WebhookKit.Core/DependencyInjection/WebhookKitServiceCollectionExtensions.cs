@@ -35,6 +35,10 @@ public static class WebhookKitServiceCollectionExtensions
 
         services.AddSingleton<IValidateOptions<WebhookKitOptions>, WebhookKitOptionsValidator>();
         services.AddSingleton<IWebhookClock, SystemWebhookClock>();
+        services.TryAddSingleton<IWebhookStore, Stores.InMemoryWebhookStore>();
+        services.TryAddSingleton<Deduplication.WebhookDeduplicationKeyFactory>();
+        services.TryAddSingleton<Deduplication.DefaultWebhookDeduplicator>();
+        services.TryAddSingleton<IWebhookDeduplicator>(sp => sp.GetRequiredService<Deduplication.DefaultWebhookDeduplicator>());
 
         // Verifiers
         services.TryAddSingleton<IWebhookSignatureVerifier, Verifiers.HmacSignatureVerifier>();

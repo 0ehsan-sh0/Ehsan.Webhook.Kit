@@ -13,6 +13,8 @@ public sealed class WebhookProviderOptions
     /// <summary>Retry settings.</summary>
     public WebhookRetryOptions Retry { get; } = new();
 
+    public bool AllowBodyHashFallback { get; set; }
+
     /// <summary>Header carrying the event ID. Null defers to JSON/custom extractors (Tasks 08/09).</summary>
     public string? EventIdHeaderName { get; set; }
 
