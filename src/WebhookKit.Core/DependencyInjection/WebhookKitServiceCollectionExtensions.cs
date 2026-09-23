@@ -4,7 +4,9 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using WebhookKit.Abstractions;
 using WebhookKit.Core.Clocks;
+using WebhookKit.Core.Handlers;
 using WebhookKit.Core.Options;
+using WebhookKit.Core.Processing;
 
 namespace WebhookKit.Core.DependencyInjection;
 
@@ -63,6 +65,36 @@ public static class WebhookKitServiceCollectionExtensions
             sp.GetRequiredService<Extractors.JsonEventTypeExtractor>()
         ]));
 
+        AddProcessingServices(services);
         return services;
+    }
+
+    public static IServiceCollection AddWebhookHandler<THandler>(this IServiceCollection services, string eventType)
+        where THandler : class
+    {
+        return AddWebhookHandler(services, typeof(THandler), eventType);
+    }
+
+    public static IServiceCollection AddWebhookHandler(
+        this IServiceCollection services,
+        Type implementationType,
+        string eventType)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        var descriptor = WebhookHandlerDescriptor.Create(implementationType, eventType);
+        services.Add(new ServiceDescriptor(implementationType, implementationType, ServiceLifetime.Scoped));
+        services.AddSingleton(descriptor);
+        AddProcessingServices(services);
+        return services;
+    }
+
+    private static void AddProcessingServices(IServiceCollection services)
+    {
+        services.TryAddSingleton<WebhookHandlerRegistry>();
+        services.TryAddScoped<WebhookProcessor>();
+        services.TryAddScoped<IWebhookProcessor>(sp => sp.GetRequiredService<WebhookProcessor>());
+        services.TryAddScoped<IWebhookDispatchProcessor>(sp => sp.GetRequiredService<WebhookProcessor>());
+        services.TryAddScoped<WebhookIngestionService>();
     }
 }
