@@ -1,4 +1,6 @@
 // Copyright (c) Ehsan. Licensed under the MIT License.
+using System.Text.Json;
+
 namespace WebhookKit.Core.Options;
 
 /// <summary>Root WebhookKit options.</summary>
@@ -12,6 +14,11 @@ public sealed class WebhookKitOptions
 
     /// <summary>Global maximum request body size in bytes. Exceeding requests map to 413.</summary>
     public long MaxRequestBodySizeBytes { get; set; } = DefaultMaxRequestBodySizeBytes;
+
+    public JsonSerializerOptions JsonSerializerOptions { get; set; } = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
 
     /// <summary>Register a provider. Throws <see cref="WebhookConfigurationException"/> on null/empty/duplicate names.</summary>
     public WebhookKitOptions AddProvider(string name, Action<WebhookProviderOptions> configure)
