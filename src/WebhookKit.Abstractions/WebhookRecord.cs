@@ -16,6 +16,8 @@ public sealed class WebhookRecord
     /// <summary>Upstream provider event identifier (e.g. "evt_123"). Null until extracted.</summary>
     public string? EventId { get; init; }
 
+    public string DeduplicationKey { get; init; } = string.Empty;
+
     /// <summary>Categorical event type (e.g. "payment.succeeded"). Null until extracted.</summary>
     public string? EventType { get; init; }
 
@@ -49,6 +51,12 @@ public sealed class WebhookRecord
     /// <summary>Number of processing attempts so far.</summary>
     public int AttemptCount { get; set; }
 
+    public DateTimeOffset? LastAttemptAt { get; set; }
+
+    public string? ProcessingLeaseOwner { get; set; }
+
+    public DateTimeOffset? ProcessingLeaseExpiresAt { get; set; }
+
     /// <summary>Instant processing completed successfully, if applicable.</summary>
     public DateTimeOffset? ProcessedAt { get; set; }
 
@@ -57,4 +65,6 @@ public sealed class WebhookRecord
 
     /// <summary>Non-sensitive diagnostic failure reason. Never contains secrets.</summary>
     public string? FailureReason { get; set; }
+
+    public string? FailureCode { get; set; }
 }
