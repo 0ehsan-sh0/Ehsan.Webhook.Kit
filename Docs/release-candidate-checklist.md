@@ -146,6 +146,96 @@ This is a wide ShortRun confidence caveat, not a statistically strong performanc
 5. The protected release environment, `NUGET_USER`, and nuget.org publication policy are not configured locally.
 6. No publication, tag creation, or push was performed.
 
+## Final external handoff state
+
+### Authorization boundary
+
+User authorization for this work is limited to local implementation and local commits. It explicitly excludes creating or pushing a tag, creating a remote branch, pushing any remote ref, creating a GitHub release, publishing to NuGet or nuget.org, and configuring or changing any external release system. This handoff grants no authority to perform any of those actions.
+
+### Candidate package handoff
+
+The six package IDs and versions are fixed as follows. The candidate artifacts were generated under `artifacts/packages` during the controlled retained-artifact validation run, then removed by the subsequent default validator cleanup; `artifacts/packages` is currently absent. The listed names and paths identify the locally validated candidate set and its exact regeneration locations, not retained files or published packages.
+
+| Package ID | Version | Library candidate path | Symbol candidate path |
+| --- | --- | --- | --- |
+| `WebhookKit.Abstractions` | `1.0.0` | `artifacts/packages/WebhookKit.Abstractions.1.0.0.nupkg` | `artifacts/packages/WebhookKit.Abstractions.1.0.0.snupkg` |
+| `WebhookKit.Core` | `1.0.0` | `artifacts/packages/WebhookKit.Core.1.0.0.nupkg` | `artifacts/packages/WebhookKit.Core.1.0.0.snupkg` |
+| `WebhookKit.AspNetCore` | `1.0.0` | `artifacts/packages/WebhookKit.AspNetCore.1.0.0.nupkg` | `artifacts/packages/WebhookKit.AspNetCore.1.0.0.snupkg` |
+| `WebhookKit.EntityFrameworkCore` | `1.0.0` | `artifacts/packages/WebhookKit.EntityFrameworkCore.1.0.0.nupkg` | `artifacts/packages/WebhookKit.EntityFrameworkCore.1.0.0.snupkg` |
+| `WebhookKit.Redis` | `1.0.0` | `artifacts/packages/WebhookKit.Redis.1.0.0.nupkg` | `artifacts/packages/WebhookKit.Redis.1.0.0.snupkg` |
+| `WebhookKit.Testing` | `1.0.0` | `artifacts/packages/WebhookKit.Testing.1.0.0.nupkg` | `artifacts/packages/WebhookKit.Testing.1.0.0.snupkg` |
+
+The exact candidate filenames, byte sizes, and SHA-256 values are preserved in the version table above. To regenerate and inspect these six `.nupkg` and six `.snupkg` files at the paths above, use:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File "scripts\validate-packages.ps1" -Configuration Release -KeepArtifacts
+```
+
+The normal validation command without `-KeepArtifacts` removes the controlled output afterward.
+
+### Committed validation evidence
+
+Task 36's exact committed quality-gate commands were:
+
+```powershell
+dotnet restore "Ehsan.Webhook.Kit.slnx"
+dotnet build "Ehsan.Webhook.Kit.slnx" -c Release
+dotnet test "Ehsan.Webhook.Kit.slnx" -c Release --no-build
+powershell -ExecutionPolicy Bypass -File "scripts\validate-packages.ps1" -Configuration Release
+```
+
+The exact format command was:
+
+```powershell
+dotnet format "Ehsan.Webhook.Kit.slnx" --verify-no-changes --no-restore --verbosity minimal
+```
+
+The four exact sample Release build commands were:
+
+```powershell
+dotnet build "samples\MinimalApi\MinimalApi.csproj" -c Release
+dotnet build "samples\Mvc\Mvc.csproj" -c Release
+dotnet build "samples\Redis\Redis.csproj" -c Release
+dotnet build "samples\EntityFrameworkCore\EntityFrameworkCore.csproj" -c Release
+```
+
+For the committed live-Redis gate, `WEBHOOKKIT_REDIS_CONNECTION=127.0.0.1:46583` was supplied only to the child test and package-validation processes. The final committed full-solution result was **502 passed, 0 failed, 0 skipped**, with all eight live Redis cases executed. The one earlier transient Core timeout and its successful focused/full reruns remain disclosed above.
+
+Task 36's fresh deterministic verification explicitly removed the opt-in Redis variable and used the same build/test commands:
+
+```powershell
+$env:WEBHOOKKIT_REDIS_CONNECTION = $null
+dotnet test "Ehsan.Webhook.Kit.slnx" -c Release --no-build
+```
+
+That fresh result was **494 passed, 0 failed, 6 skipped**: exactly the five opt-in `RedisLiveStoreTests` rows and the three-case live Redis concurrency theory, with no deterministic test skipped. Fresh restore/build/format/package validation also passed, and all four sample builds completed with zero warnings and zero errors. Task 37 did not rerun these commands; it records the committed Task 36 evidence as directed.
+
+### Protected OIDC workflow handoff
+
+The committed OIDC publication workflow is `.github/workflows/release.yml`. Its publish job is gated on a protected `v*` tag and the GitHub Environment named `release`. The future repository-owner and nuget.org trusted-publishing values are exact and must remain subject to separate owner configuration and authorization:
+
+| Setting | Required value |
+| --- | --- |
+| Trusted-publishing repository owner | `0ehsan-sh0` |
+| Trusted-publishing repository | `Ehsan.Webhook.Kit` |
+| Trusted-publishing workflow | `release.yml` |
+| GitHub Environment | `release` |
+| Environment secret used by the workflow | `NUGET_USER`, containing the nuget.org username rather than an API key |
+
+The repository owner must separately configure the protected release-tag rules so the intended `v*` tag makes `github.ref_protected` true, configure required reviewers for the `release` Environment, add the `NUGET_USER` Environment secret, and create the nuget.org trusted-publishing policy with the exact owner, repository, and workflow values above. These external settings are not locally configured, were not queried or changed for this handoff, and are not claimed to exist. The workflow receives only the short-lived OIDC login output; no credential or API key is present in this checklist.
+
+### Local status, external gates, and handoff checklist
+
+- [x] The candidate is a local-only, unpublished handoff; no tag, GitHub release, NuGet publication, remote branch, push, git-config change, environment change, secret creation, or external release configuration occurred.
+- [x] The six package IDs, versions, candidate filenames/paths, and cleaned artifact state are explicit.
+- [x] The exact validation, test, build, and format commands are recorded with committed 502/0/0 live-Redis and fresh 494/0/6 deterministic results.
+- [x] The protected OIDC workflow filename and exact future owner configuration values are recorded without claiming the external settings exist.
+- [x] Existing evidence, caveats, transient failure disclosure, benchmark limitations, storage/security limitations, and sample evidence are preserved.
+- [ ] The external owner must review this handoff, run GitHub CI for the candidate, and confirm or configure the protected `release` Environment, `NUGET_USER`, protected release-tag rules, and nuget.org trusted-publishing policy.
+- [ ] NuGet publication requires a separate explicit authorization after every external gate is confirmed; this checklist does not instruct or authorize publication now.
+
+**Next authorized action:** repository-owner/reviewer handoff review of this local candidate and its external gate requirements. Stop at that review unless a later, explicit authorization separately authorizes an external release action.
+
 ## Release conclusion
 
 The v1.0.0 candidate is locally validated and ready for final comprehensive review/external handoff, not published. The remaining work is external review and separately authorized release preparation; this checklist makes no publication or tag claim.
