@@ -1,0 +1,119 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    services:
+      redis:
+        image: redis:7.4.5@sha256:90e7a336d044f1abc9e9dbc05d65566850896d11453bbd1dd0fb7e5059f0e8fb
+        ports:
+          - "127.0.0.1:6379:6379"
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Set up .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+        with:
+          dotnet-version: |
+            8.0.x
+            9.0.x
+            10.0.x
+      - name: Restore
+        shell: bash
+        run: dotnet restore "Ehsan.Webhook.Kit.slnx"
+      - name: Release build
+        shell: bash
+        run: dotnet build "Ehsan.Webhook.Kit.slnx" --configuration Release --no-restore -p:TreatWarningsAsErrors=true
+      - name: Test net8.0
+        shell: bash
+        env:
+          WEBHOOKKIT_REDIS_CONNECTION: 127.0.0.1:6379
+        run: dotnet test "Ehsan.Webhook.Kit.slnx" --configuration Release --framework net8.0 --no-restore --no-build
+      - name: Verify formatting
+        shell: bash
+        run: dotnet format "Ehsan.Webhook.Kit.slnx" --verify-no-changes --no-restore --verbosity minimal
+      - name: Validate packages
+        shell: pwsh
+        env:
+          WEBHOOKKIT_REDIS_CONNECTION: 127.0.0.1:6379
+        run: ./scripts/validate-packages.ps1 -Configuration Release -KeepArtifacts
+      - name: Upload validated packages
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: validated-packages
+          path: |
+            artifacts/packages/*.nupkg
+            artifacts/packages/*.snupkg
+          if-no-files-found: error
+          retention-days: 7
+  publish:
+    name: Publish
+    needs: verify
+    if: ${{ github.ref_type == 'tag' && startsWith(github.ref, 'refs/tags/v') && github.ref_protected }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    environment:
+      name: release
+    steps:
+      - name: Download validated packages
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: validated-packages
+          path: artifacts/packages
+      - name: Set up .NET for publishing
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+        with:
+          dotnet-version: 8.0.x
+          cache: false
+      - name: Authenticate to NuGet with OIDC
+        id: nuget-login
+        uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841
+        with:
+          user: ${{ secrets.NUGET_USER }}
+      - name: Publish nupkg files
+        shell: bash
+        env:
+          NUGET_API_KEY: ${{ steps.nuget-login.outputs.NUGET_API_KEY }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          packages=(artifacts/packages/*.nupkg)
+          if (( ${#packages[@]} == 0 )); then
+            echo "No validated .nupkg files were found." >&2
+            exit 1
+          fi
+          : "${NUGET_API_KEY:?NuGet OIDC API key was not provided.}"
+          for package in "${packages[@]}"; do
+            dotnet nuget push "$package" \
+              --source https://api.nuget.org/v3/index.json \
+              --api-key "$NUGET_API_KEY" \
+              --skip-duplicate
+          done
