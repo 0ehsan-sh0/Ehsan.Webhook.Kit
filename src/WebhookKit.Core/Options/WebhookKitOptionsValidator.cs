@@ -9,7 +9,10 @@ namespace WebhookKit.Core.Options;
 /// </summary>
 public sealed class WebhookKitOptionsValidator : IValidateOptions<WebhookKitOptions>
 {
-    /// <inheritdoc />
+    /// <summary>Validates global and per-provider options without exposing secret values.</summary>
+    /// <param name="name">Named options instance, when supplied by the options system.</param>
+    /// <param name="options">Options to validate; the validator does not mutate them.</param>
+    /// <returns>A success, skip, or safe failure result.</returns>
     public ValidateOptionsResult Validate(string? name, WebhookKitOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);

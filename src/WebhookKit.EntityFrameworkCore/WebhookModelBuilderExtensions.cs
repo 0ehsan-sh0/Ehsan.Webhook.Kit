@@ -3,8 +3,12 @@ using WebhookKit.Abstractions;
 
 namespace WebhookKit.EntityFrameworkCore;
 
+/// <summary>Configures the WebhookKit relational entity and indexes.</summary>
 public static class WebhookModelBuilderExtensions
 {
+    /// <summary>Applies the WebhookKit table mapping and recovery indexes.</summary>
+    /// <param name="modelBuilder">The EF Core model builder to configure.</param>
+    /// <returns>The same model builder for fluent configuration.</returns>
     public static ModelBuilder ApplyWebhookConfiguration(this ModelBuilder modelBuilder)
     {
         ArgumentNullException.ThrowIfNull(modelBuilder);

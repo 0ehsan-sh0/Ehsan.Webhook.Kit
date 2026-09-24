@@ -8,7 +8,7 @@ namespace WebhookKit.Abstractions;
 /// <summary>
 /// Foundations slice of the execution context passed to application handlers.
 /// Shields secrets and raw buffers; exposes extracted metadata only.
-/// Extended with payload helpers in Task 12/13.
+/// Payload helpers are lazy and keep the raw buffer private.
 /// </summary>
 public sealed class WebhookContext
 {
@@ -20,10 +20,14 @@ public sealed class WebhookContext
     private readonly IWebhookDeserializer? _deserializer;
     private IReadOnlyDictionary<string, string[]> _headers = EmptyHeaders;
 
+    /// <summary>Creates an empty context for metadata-only scenarios.</summary>
     public WebhookContext()
     {
     }
 
+    /// <summary>Creates a context that can lazily deserialize a copied request body.</summary>
+    /// <param name="rawBody">The exact request bytes; the constructor takes a private copy.</param>
+    /// <param name="deserializer">The deserializer used by the <c>GetPayload</c> helper.</param>
     public WebhookContext(ReadOnlyMemory<byte> rawBody, IWebhookDeserializer? deserializer)
     {
         _deserializer = deserializer ?? throw new WebhookPayloadException();
@@ -33,6 +37,7 @@ public sealed class WebhookContext
     /// <summary>WebhookKit-generated transmission identifier.</summary>
     public required string WebhookId { get; init; }
 
+    /// <summary>Application correlation identifier, when supplied by the caller or pipeline.</summary>
     public string? CorrelationId { get; init; }
 
     /// <summary>Configured provider name.</summary>
@@ -50,18 +55,24 @@ public sealed class WebhookContext
     /// <summary>Provider-supplied event timestamp, if extracted.</summary>
     public DateTimeOffset? ProviderTimestamp { get; init; }
 
-    /// <summary>Request headers. Multi-value per key.</summary>
+    /// <summary>Read-only request header snapshot with multiple values per key.</summary>
     public required IReadOnlyDictionary<string, string[]> Headers
     {
         get => _headers;
         init => _headers = CreateHeaderSnapshot(value);
     }
 
+    /// <summary>Gets the typed payload, deserializing and caching it on first use.</summary>
+    /// <typeparam name="T">The application event payload type.</typeparam>
+    /// <returns>The non-null deserialized payload.</returns>
+    /// <exception cref="WebhookPayloadException">The context has no body/deserializer or the payload is invalid.</exception>
     public T GetPayload<T>()
     {
         return GetPayload<T>(typeof(T));
     }
 
+    /// <summary>Returns non-sensitive context metadata for diagnostics.</summary>
+    /// <returns>A metadata-only string that never includes the raw body or secrets.</returns>
     public override string ToString()
     {
         return $"WebhookContext {{ WebhookId = {WebhookId}, Provider = {Provider}, EventId = {EventId}, EventType = {EventType}, ReceivedAt = {ReceivedAt:O} }}";

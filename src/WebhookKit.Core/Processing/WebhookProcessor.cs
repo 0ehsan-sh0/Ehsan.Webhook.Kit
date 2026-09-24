@@ -9,17 +9,27 @@ using WebhookKit.Core.Handlers;
 
 namespace WebhookKit.Core.Processing;
 
+/// <summary>Dispatches a verified context and returns a safe dispatch result.</summary>
 public interface IWebhookDispatchProcessor
 {
+    /// <summary>Dispatches the context to handlers registered for its event type.</summary>
+    /// <param name="context">The verified execution context.</param>
+    /// <param name="cancellationToken">Token used to cancel dispatch.</param>
+    /// <returns>The dispatch result.</returns>
     Task<WebhookDispatchResult> DispatchAsync(WebhookContext context, CancellationToken cancellationToken = default);
 }
 
+/// <summary>Dispatches matching handlers sequentially using a scoped service provider.</summary>
 public sealed class WebhookProcessor : IWebhookProcessor, IWebhookDispatchProcessor
 {
     private readonly WebhookHandlerRegistry _registry;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<WebhookProcessor> _logger;
 
+    /// <summary>Creates a processor with a handler registry and scope factory.</summary>
+    /// <param name="registry">Registered handler descriptors.</param>
+    /// <param name="scopeFactory">Factory used to create one DI scope per dispatch.</param>
+    /// <param name="logger">Optional logger; a null logger uses a no-op logger.</param>
     public WebhookProcessor(
         WebhookHandlerRegistry registry,
         IServiceScopeFactory scopeFactory,
@@ -32,6 +42,11 @@ public sealed class WebhookProcessor : IWebhookProcessor, IWebhookDispatchProces
         _logger = logger ?? NullLogger<WebhookProcessor>.Instance;
     }
 
+    /// <summary>Dispatches matching handlers sequentially in registration order.</summary>
+    /// <param name="context">The verified context; it must contain an event type.</param>
+    /// <param name="cancellationToken">Token used to cancel dispatch and handler execution.</param>
+    /// <returns>A processed, ignored, or failed result with safe failure codes.</returns>
+    /// <exception cref="OperationCanceledException">Cancellation was requested.</exception>
     public async Task<WebhookDispatchResult> DispatchAsync(
         WebhookContext context,
         CancellationToken cancellationToken = default)
@@ -174,6 +189,11 @@ public sealed class WebhookProcessor : IWebhookProcessor, IWebhookDispatchProces
         }
     }
 
+    /// <summary>Dispatches the context and rethrows a failed dispatch exception when one is available.</summary>
+    /// <param name="context">The verified context.</param>
+    /// <param name="cancellationToken">Token used to cancel dispatch.</param>
+    /// <returns>A task that completes after successful or ignored dispatch.</returns>
+    /// <exception cref="OperationCanceledException">Cancellation was requested.</exception>
     public async Task ProcessAsync(WebhookContext context, CancellationToken cancellationToken = default)
     {
         var result = await DispatchAsync(context, cancellationToken).ConfigureAwait(false);

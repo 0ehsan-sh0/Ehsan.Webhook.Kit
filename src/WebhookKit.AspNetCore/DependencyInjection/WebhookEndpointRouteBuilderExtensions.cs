@@ -5,8 +5,14 @@ using WebhookKit.AspNetCore.Pipeline;
 
 namespace WebhookKit.AspNetCore.DependencyInjection;
 
+/// <summary>Maps WebhookKit minimal API endpoints.</summary>
 public static class WebhookEndpointRouteBuilderExtensions
 {
+    /// <summary>Maps a POST endpoint for a provider using synchronous defaults.</summary>
+    /// <param name="routes">The endpoint route builder.</param>
+    /// <param name="pattern">The route pattern.</param>
+    /// <param name="providerName">Configured provider name.</param>
+    /// <returns>The mapped route handler builder.</returns>
     public static RouteHandlerBuilder MapWebhook(
         this IEndpointRouteBuilder routes,
         string pattern,
@@ -15,6 +21,11 @@ public static class WebhookEndpointRouteBuilderExtensions
         return routes.MapWebhook(pattern, new WebhookEndpointOptions(providerName));
     }
 
+    /// <summary>Maps a POST endpoint using a complete options snapshot.</summary>
+    /// <param name="routes">The endpoint route builder.</param>
+    /// <param name="pattern">The route pattern.</param>
+    /// <param name="options">Endpoint options; they are validated and snapshotted during mapping.</param>
+    /// <returns>The mapped route handler builder.</returns>
     public static RouteHandlerBuilder MapWebhook(
         this IEndpointRouteBuilder routes,
         string pattern,
@@ -74,6 +85,12 @@ public static class WebhookEndpointRouteBuilderExtensions
         return builder;
     }
 
+    /// <summary>Maps a POST endpoint using a provider name and response/metadata options.</summary>
+    /// <param name="routes">The endpoint route builder.</param>
+    /// <param name="pattern">The route pattern.</param>
+    /// <param name="providerName">Configured provider name.</param>
+    /// <param name="options">Endpoint options whose provider value is replaced by <paramref name="providerName"/>.</param>
+    /// <returns>The mapped route handler builder.</returns>
     public static RouteHandlerBuilder MapWebhook(
         this IEndpointRouteBuilder routes,
         string pattern,

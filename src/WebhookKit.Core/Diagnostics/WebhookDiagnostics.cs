@@ -2,8 +2,10 @@ using System.Diagnostics;
 
 namespace WebhookKit.Core.Diagnostics;
 
+/// <summary>Provides the WebhookKit activity source for distributed tracing.</summary>
 public static class WebhookDiagnostics
 {
+    /// <summary>Activity source used for receive and processing spans; the source is safe to share across requests.</summary>
     public static ActivitySource Source { get; } = new("WebhookKit", "1.0.0");
 
     internal const string WebhookIdTag = "webhook.id";

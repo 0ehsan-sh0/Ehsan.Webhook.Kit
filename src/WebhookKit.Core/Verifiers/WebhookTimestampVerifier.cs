@@ -15,12 +15,19 @@ public sealed class WebhookTimestampVerifier : IWebhookTimestampVerifier
     private readonly IOptions<WebhookKitOptions> _options;
     private readonly IWebhookClock _clock;
 
+    /// <summary>Creates a timestamp verifier using configured tolerance and an injectable clock.</summary>
+    /// <param name="options">WebhookKit options containing provider timestamp configuration.</param>
+    /// <param name="clock">Clock used to compare the provider timestamp with current UTC time.</param>
     public WebhookTimestampVerifier(IOptions<WebhookKitOptions> options, IWebhookClock clock)
     {
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
     }
 
+    /// <summary>Validates timestamp freshness and replay tolerance.</summary>
+    /// <param name="context">Provider name, exact raw body, and request headers.</param>
+    /// <param name="cancellationToken">Token used to cancel validation.</param>
+    /// <returns>A result whose rejection reason contains no secrets or raw payload data.</returns>
     public ValueTask<WebhookVerificationResult> VerifyAsync(
         WebhookVerificationContext context,
         CancellationToken cancellationToken = default)

@@ -5,6 +5,7 @@ using WebhookKit.Core.Options;
 
 namespace WebhookKit.Core.Handlers;
 
+/// <summary>Describes a registered strongly typed handler and its event mapping.</summary>
 public sealed class WebhookHandlerDescriptor
 {
     private readonly IWebhookHandlerInvoker _invoker;
@@ -23,12 +24,16 @@ public sealed class WebhookHandlerDescriptor
         _invoker = invoker;
     }
 
+    /// <summary>Provider event type routed to this handler.</summary>
     public string EventType { get; }
 
+    /// <summary>Concrete handler implementation resolved from scoped DI.</summary>
     public Type ImplementationType { get; }
 
+    /// <summary>Closed payload type accepted by the handler.</summary>
     public Type PayloadType { get; }
 
+    /// <summary>Closed <see cref="IWebhookHandler{T}"/> contract implemented by the handler.</summary>
     public Type HandlerInterfaceType { get; }
 
     internal static WebhookHandlerDescriptor Create(Type implementationType, string eventType)

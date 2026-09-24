@@ -9,6 +9,8 @@ using WebhookKit.Abstractions;
 
 namespace WebhookKit.Redis;
 
+/// <summary>Redis-backed webhook store with atomic Lua transitions and lease recovery.</summary>
+/// <remarks>Records and raw bodies are serialized by this provider; callers should not place secrets in failure reasons.</remarks>
 public sealed class RedisWebhookStore : IWebhookStore
 {
     private const string NegativeInfinityScore = "-inf";
@@ -199,6 +201,10 @@ public sealed class RedisWebhookStore : IWebhookStore
     private readonly long _deduplicationRetentionMilliseconds;
     private readonly long _recordRetentionMilliseconds;
 
+    /// <summary>Creates a store using the database from a Redis connection multiplexer.</summary>
+    /// <param name="connectionMultiplexer">The application's Redis connection multiplexer.</param>
+    /// <param name="options">Key prefix and retention options.</param>
+    /// <param name="clock">Clock used for lease timestamps.</param>
     public RedisWebhookStore(
         IConnectionMultiplexer connectionMultiplexer,
         IOptions<RedisWebhookStoreOptions> options,
@@ -224,6 +230,11 @@ public sealed class RedisWebhookStore : IWebhookStore
         _recordRetentionMilliseconds = checked((long)storeOptions.RecordRetention.TotalMilliseconds);
     }
 
+    /// <summary>Gets a record by provider and event ID from Redis.</summary>
+    /// <param name="provider">Provider name normalized by the store.</param>
+    /// <param name="eventId">Provider event ID.</param>
+    /// <param name="cancellationToken">Token used to cancel Redis operations.</param>
+    /// <returns>A detached record, or <see langword="null"/> when absent.</returns>
     public async ValueTask<WebhookRecord?> GetAsync(
         string provider,
         string eventId,
@@ -243,6 +254,10 @@ public sealed class RedisWebhookStore : IWebhookStore
         return await GetByWebhookIdAsync(webhookId, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>Atomically creates a record and its Redis indexes using Lua.</summary>
+    /// <param name="record">Record to serialize and store.</param>
+    /// <param name="cancellationToken">Token used to cancel the Redis operation.</param>
+    /// <returns><see langword="true"/> when created; <see langword="false"/> for an existing identity.</returns>
     public async ValueTask<bool> TryCreateAsync(WebhookRecord record, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -266,6 +281,10 @@ public sealed class RedisWebhookStore : IWebhookStore
         return result.Value == 1;
     }
 
+    /// <summary>Updates a stored record while preserving identity and lease rules.</summary>
+    /// <param name="record">Updated record snapshot.</param>
+    /// <param name="cancellationToken">Token used to cancel the Redis operation.</param>
+    /// <returns>A task that completes when the update is applied or ignored.</returns>
     public async ValueTask UpdateAsync(WebhookRecord record, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -292,6 +311,10 @@ public sealed class RedisWebhookStore : IWebhookStore
         }
     }
 
+    /// <summary>Gets a record by its WebhookKit transmission identifier.</summary>
+    /// <param name="webhookId">Canonical ULID transmission identifier.</param>
+    /// <param name="cancellationToken">Token used to cancel the Redis operation.</param>
+    /// <returns>A detached record, or <see langword="null"/> when absent.</returns>
     public async ValueTask<WebhookRecord?> GetByWebhookIdAsync(
         string webhookId,
         CancellationToken cancellationToken = default)
@@ -303,6 +326,12 @@ public sealed class RedisWebhookStore : IWebhookStore
         return Deserialize(json);
     }
 
+    /// <summary>Atomically claims a received or expired processing record.</summary>
+    /// <param name="webhookId">Canonical ULID transmission identifier.</param>
+    /// <param name="leaseOwner">Owner recorded for the lease.</param>
+    /// <param name="leaseDuration">Positive lease duration.</param>
+    /// <param name="cancellationToken">Token used to cancel the Redis operation.</param>
+    /// <returns><see langword="true"/> when the lease was acquired.</returns>
     public async ValueTask<bool> TryClaimAsync(
         string webhookId,
         string leaseOwner,
@@ -339,6 +368,11 @@ public sealed class RedisWebhookStore : IWebhookStore
         return result == 1;
     }
 
+    /// <summary>Releases an owned processing lease.</summary>
+    /// <param name="webhookId">Canonical ULID transmission identifier.</param>
+    /// <param name="leaseOwner">Current lease owner.</param>
+    /// <param name="cancellationToken">Token used to cancel the Redis operation.</param>
+    /// <returns><see langword="true"/> when the owned lease was released.</returns>
     public async ValueTask<bool> ReleaseAsync(
         string webhookId,
         string leaseOwner,
@@ -356,6 +390,12 @@ public sealed class RedisWebhookStore : IWebhookStore
         return result == 1;
     }
 
+    /// <summary>Marks an owned processing record as processed.</summary>
+    /// <param name="webhookId">Canonical ULID transmission identifier.</param>
+    /// <param name="leaseOwner">Current lease owner.</param>
+    /// <param name="processedAt">Completion timestamp.</param>
+    /// <param name="cancellationToken">Token used to cancel the Redis operation.</param>
+    /// <returns><see langword="true"/> when the transition was applied.</returns>
     public async ValueTask<bool> MarkProcessedAsync(
         string webhookId,
         string leaseOwner,
@@ -374,6 +414,13 @@ public sealed class RedisWebhookStore : IWebhookStore
         return result == 1;
     }
 
+    /// <summary>Marks an owned processing record as failed with a normalized safe reason.</summary>
+    /// <param name="webhookId">Canonical ULID transmission identifier.</param>
+    /// <param name="leaseOwner">Current lease owner.</param>
+    /// <param name="failedAt">Failure timestamp.</param>
+    /// <param name="failureReason">Optional code-like reason; unsafe values are normalized.</param>
+    /// <param name="cancellationToken">Token used to cancel the Redis operation.</param>
+    /// <returns><see langword="true"/> when the transition was applied.</returns>
     public async ValueTask<bool> MarkFailedAsync(
         string webhookId,
         string leaseOwner,
@@ -395,6 +442,12 @@ public sealed class RedisWebhookStore : IWebhookStore
         return result == 1;
     }
 
+    /// <summary>Gets received records and expired leases from the Redis recovery index.</summary>
+    /// <param name="now">Current time used for lease expiry.</param>
+    /// <param name="expiredLeaseAge">Minimum lease age before recovery.</param>
+    /// <param name="limit">Maximum records to return.</param>
+    /// <param name="cancellationToken">Token used to cancel Redis operations.</param>
+    /// <returns>Detached recoverable records.</returns>
     public async ValueTask<IReadOnlyList<WebhookRecord>> GetRecoverableAsync(
         DateTimeOffset now,
         TimeSpan expiredLeaseAge,

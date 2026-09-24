@@ -24,6 +24,9 @@ public static class WebhookKitAspNetCoreServiceCollectionExtensions
         return services;
     }
 
+    /// <summary>Registers body reading, response formatting, endpoint processing, and MVC integration.</summary>
+    /// <param name="services">The service collection to configure.</param>
+    /// <returns>The same service collection for fluent registration.</returns>
     public static IServiceCollection AddWebhookKitAspNetCore(this IServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
@@ -41,6 +44,9 @@ public static class WebhookKitAspNetCoreServiceCollectionExtensions
         return services;
     }
 
+    /// <summary>Compatibility alias for <see cref="AddWebhookKitAspNetCore"/>.</summary>
+    /// <param name="services">The service collection to configure.</param>
+    /// <returns>The same service collection for fluent registration.</returns>
     public static IServiceCollection AddWebhookAspNetCore(this IServiceCollection services)
     {
         return services.AddWebhookKitAspNetCore();

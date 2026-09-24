@@ -2,14 +2,20 @@ using WebhookKit.Abstractions;
 
 namespace WebhookKit.AspNetCore.Pipeline;
 
+/// <summary>Controls whether an endpoint handles a delivery synchronously or admits it for background work.</summary>
 public enum WebhookProcessingMode
 {
+    /// <summary>Verify, deduplicate, and dispatch before responding.</summary>
     Synchronous = 0,
+    /// <summary>Verify, deduplicate, persist, and enqueue before responding with acceptance.</summary>
     Asynchronous = 1,
+    /// <summary>Compatibility alias for <see cref="Asynchronous"/>.</summary>
     Async = Asynchronous,
+    /// <summary>Compatibility alias for <see cref="Asynchronous"/>.</summary>
     Background = Asynchronous
 }
 
+/// <summary>Configures safe HTTP status codes for endpoint outcomes.</summary>
 public sealed class WebhookEndpointResponseOptions
 {
     private int? _successStatusCode;
@@ -26,120 +32,140 @@ public sealed class WebhookEndpointResponseOptions
     private int? _processingFailedStatusCode;
     private int? _configurationErrorStatusCode;
 
+    /// <summary>HTTP status for a synchronously processed delivery.</summary>
     public int? SuccessStatusCode
     {
         get => _successStatusCode;
         init => _successStatusCode = value;
     }
 
+    /// <summary>Compatibility alias for <see cref="SuccessStatusCode"/>.</summary>
     public int? ProcessedStatusCode
     {
         get => _successStatusCode;
         init => _successStatusCode = value;
     }
 
+    /// <summary>HTTP status for an asynchronously accepted delivery.</summary>
     public int? AcceptedStatusCode
     {
         get => _acceptedStatusCode;
         init => _acceptedStatusCode = value;
     }
 
+    /// <summary>HTTP status for a duplicate delivery.</summary>
     public int? DuplicateStatusCode
     {
         get => _duplicateStatusCode;
         init => _duplicateStatusCode = value;
     }
 
+    /// <summary>HTTP status for a verified event with no handler.</summary>
     public int? IgnoredStatusCode
     {
         get => _ignoredStatusCode;
         init => _ignoredStatusCode = value;
     }
 
+    /// <summary>HTTP status for a signature rejection.</summary>
     public int? InvalidSignatureStatusCode
     {
         get => _invalidSignatureStatusCode;
         init => _invalidSignatureStatusCode = value;
     }
 
+    /// <summary>Compatibility alias for <see cref="InvalidSignatureStatusCode"/>.</summary>
     public int? SignatureFailureStatusCode
     {
         get => _invalidSignatureStatusCode;
         init => _invalidSignatureStatusCode = value;
     }
 
+    /// <summary>HTTP status for a timestamp or replay rejection.</summary>
     public int? InvalidTimestampStatusCode
     {
         get => _invalidTimestampStatusCode;
         init => _invalidTimestampStatusCode = value;
     }
 
+    /// <summary>Compatibility alias for <see cref="InvalidTimestampStatusCode"/>.</summary>
     public int? ReplayFailureStatusCode
     {
         get => _invalidTimestampStatusCode;
         init => _invalidTimestampStatusCode = value;
     }
 
+    /// <summary>HTTP status for a missing event identifier.</summary>
     public int? MissingEventIdStatusCode
     {
         get => _missingEventIdStatusCode;
         init => _missingEventIdStatusCode = value;
     }
 
+    /// <summary>HTTP status for a missing event type.</summary>
     public int? MissingEventTypeStatusCode
     {
         get => _missingEventTypeStatusCode;
         init => _missingEventTypeStatusCode = value;
     }
 
+    /// <summary>HTTP status for an invalid payload.</summary>
     public int? PayloadInvalidStatusCode
     {
         get => _payloadInvalidStatusCode;
         init => _payloadInvalidStatusCode = value;
     }
 
+    /// <summary>Compatibility alias for <see cref="PayloadInvalidStatusCode"/>.</summary>
     public int? PayloadFailureStatusCode
     {
         get => _payloadInvalidStatusCode;
         init => _payloadInvalidStatusCode = value;
     }
 
+    /// <summary>HTTP status for a body that exceeds the effective limit.</summary>
     public int? PayloadTooLargeStatusCode
     {
         get => _payloadTooLargeStatusCode;
         init => _payloadTooLargeStatusCode = value;
     }
 
+    /// <summary>HTTP status when the asynchronous queue is unavailable.</summary>
     public int? QueueUnavailableStatusCode
     {
         get => _queueUnavailableStatusCode;
         init => _queueUnavailableStatusCode = value;
     }
 
+    /// <summary>Compatibility alias for <see cref="QueueUnavailableStatusCode"/>.</summary>
     public int? QueueFullStatusCode
     {
         get => _queueUnavailableStatusCode;
         init => _queueUnavailableStatusCode = value;
     }
 
+    /// <summary>HTTP status for a processing failure.</summary>
     public int? ProcessingFailedStatusCode
     {
         get => _processingFailedStatusCode;
         init => _processingFailedStatusCode = value;
     }
 
+    /// <summary>Compatibility alias for <see cref="ProcessingFailedStatusCode"/>.</summary>
     public int? ProcessingFailureStatusCode
     {
         get => _processingFailedStatusCode;
         init => _processingFailedStatusCode = value;
     }
 
+    /// <summary>HTTP status for a configuration error.</summary>
     public int? ConfigurationErrorStatusCode
     {
         get => _configurationErrorStatusCode;
         init => _configurationErrorStatusCode = value;
     }
 
+    /// <summary>Optional callback that selects a status code for any outcome.</summary>
     public Func<WebhookEndpointOutcome, int>? StatusCodeSelector { get; init; }
 
     internal int? GetStatusCode(WebhookEndpointOutcome outcome)
@@ -181,69 +207,88 @@ public sealed class WebhookEndpointResponseOptions
     }
 }
 
+/// <summary>Configures one ASP.NET Core webhook endpoint.</summary>
+/// <remarks>Instances are snapshotted by endpoint registration so later caller mutation does not change routing behavior.</remarks>
 public sealed class WebhookEndpointOptions
 {
     private string[]? _tags;
 
+    /// <summary>Creates empty endpoint options for object initializers.</summary>
     public WebhookEndpointOptions()
     {
     }
 
+    /// <summary>Creates endpoint options for a provider.</summary>
+    /// <param name="providerName">Configured provider name.</param>
     public WebhookEndpointOptions(string providerName)
     {
         ProviderName = providerName;
     }
 
+    /// <summary>Configured provider name used to select provider options.</summary>
     public string ProviderName { get; init; } = string.Empty;
 
+    /// <summary>Compatibility alias for <see cref="ProviderName"/>.</summary>
     public string Provider
     {
         get => ProviderName;
         init => ProviderName = value;
     }
 
+    /// <summary>Synchronous or asynchronous processing mode.</summary>
     public WebhookProcessingMode Mode { get; init; } = WebhookProcessingMode.Synchronous;
 
+    /// <summary>Compatibility alias for <see cref="Mode"/>.</summary>
     public WebhookProcessingMode ProcessingMode
     {
         get => Mode;
         init => Mode = value;
     }
 
+    /// <summary>Whether the endpoint is included in generated OpenAPI metadata.</summary>
     public bool IncludeInSchema { get; init; } = true;
 
+    /// <summary>Optional OpenAPI operation identifier and route name.</summary>
     public string? OperationId { get; init; }
 
+    /// <summary>Compatibility alias for <see cref="OperationId"/>.</summary>
     public string? EndpointName
     {
         get => OperationId;
         init => OperationId = value;
     }
 
+    /// <summary>Optional OpenAPI summary.</summary>
     public string? Summary { get; init; }
 
+    /// <summary>Optional OpenAPI description.</summary>
     public string? Description { get; init; }
 
+    /// <summary>OpenAPI tags copied into the endpoint metadata.</summary>
     public IReadOnlyList<string> Tags
     {
         get => _tags ?? Array.Empty<string>();
         init => _tags = value?.ToArray() ?? [];
     }
 
+    /// <summary>HTTP response status configuration.</summary>
     public WebhookEndpointResponseOptions Response { get; init; } = new();
 
+    /// <summary>Compatibility alias for <see cref="Response"/>.</summary>
     public WebhookEndpointResponseOptions ResponseOptions
     {
         get => Response;
         init => Response = value;
     }
 
+    /// <summary>Compatibility alias for <see cref="Response"/>.</summary>
     public WebhookEndpointResponseOptions StatusCodes
     {
         get => Response;
         init => Response = value;
     }
 
+    /// <summary>Compatibility alias for <see cref="Response"/>.</summary>
     public WebhookEndpointResponseOptions ResponseStatusCodes
     {
         get => Response;
@@ -297,6 +342,7 @@ public sealed class WebhookEndpointOptions
     }
 }
 
+/// <summary>Immutable endpoint metadata attached to a mapped route.</summary>
 public sealed class WebhookEndpointMetadata
 {
     internal WebhookEndpointMetadata(WebhookEndpointOptions options)
@@ -305,7 +351,9 @@ public sealed class WebhookEndpointMetadata
         ProviderName = options.ProviderName;
     }
 
+    /// <summary>Provider name associated with the endpoint.</summary>
     public string ProviderName { get; }
 
+    /// <summary>Immutable options snapshot used by endpoint processing.</summary>
     public WebhookEndpointOptions Options { get; }
 }

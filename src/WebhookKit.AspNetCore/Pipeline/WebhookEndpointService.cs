@@ -14,6 +14,7 @@ using WebhookKit.Core.Processing;
 
 namespace WebhookKit.AspNetCore.Pipeline;
 
+/// <summary>Coordinates raw-body capture, ingestion, queue admission, and safe response mapping.</summary>
 public sealed class WebhookEndpointService : IWebhookEndpointService
 {
     private readonly IWebhookBodyReader _bodyReader;
@@ -24,6 +25,14 @@ public sealed class WebhookEndpointService : IWebhookEndpointService
     private readonly WebhookResponseWriter _responseWriter;
     private readonly ILogger<WebhookEndpointService> _logger;
 
+    /// <summary>Creates the endpoint service with its body, ingestion, ID, options, and response dependencies.</summary>
+    /// <param name="bodyReader">Reader that captures the exact request body within the effective limit.</param>
+    /// <param name="ingestionService">Verification, deduplication, and dispatch pipeline.</param>
+    /// <param name="idGenerator">Generator for the transmission identifier.</param>
+    /// <param name="options">Current WebhookKit options.</param>
+    /// <param name="services">Request service provider used to resolve the queue.</param>
+    /// <param name="responseWriter">Optional response writer; a default writer is created when omitted.</param>
+    /// <param name="logger">Optional logger; a null logger uses a no-op logger.</param>
     public WebhookEndpointService(
         IWebhookBodyReader bodyReader,
         WebhookIngestionService ingestionService,
@@ -42,6 +51,11 @@ public sealed class WebhookEndpointService : IWebhookEndpointService
         _logger = logger ?? NullLogger<WebhookEndpointService>.Instance;
     }
 
+    /// <summary>Processes one webhook request and writes its safe response.</summary>
+    /// <param name="context">The current HTTP context.</param>
+    /// <param name="options">Endpoint options; validated before request processing.</param>
+    /// <param name="cancellationToken">Token used to cancel body reads, ingestion, queueing, and response writes.</param>
+    /// <returns>The safe endpoint result.</returns>
     public async Task<WebhookEndpointResult> ProcessAsync(
         HttpContext context,
         WebhookEndpointOptions options,

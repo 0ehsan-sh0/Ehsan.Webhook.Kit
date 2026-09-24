@@ -3,13 +3,25 @@ using Microsoft.AspNetCore.Mvc.Testing;
 
 namespace WebhookKit.Testing;
 
+/// <summary>Minimal host abstraction used by the WebhookKit test harness.</summary>
 public interface IWebhookTestHost
 {
+    /// <summary>Creates a client owned by the host and tracked by the harness.</summary>
+    /// <returns>A client for the started test host.</returns>
     HttpClient CreateClient();
+
+    /// <summary>Starts the host when it supports an explicit lifecycle.</summary>
+    /// <param name="cancellationToken">Token used to cancel startup.</param>
+    /// <returns>A task representing startup.</returns>
     Task StartAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+    /// <summary>Stops the host when it supports an explicit lifecycle.</summary>
+    /// <param name="cancellationToken">Token used to cancel shutdown.</param>
+    /// <returns>A task representing shutdown.</returns>
     Task StopAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 }
 
+/// <summary>Lifecycle-managed test host that owns clients created from a host or client factory.</summary>
 public sealed class WebhookTestHarness : IDisposable, IAsyncDisposable
 {
     private readonly Func<CancellationToken, Task<IWebhookTestHost>> _hostFactory;
@@ -18,37 +30,50 @@ public sealed class WebhookTestHarness : IDisposable, IAsyncDisposable
     private IWebhookTestHost? _host;
     private int _disposed;
 
+    /// <summary>Creates a harness from a synchronous host factory.</summary>
+    /// <param name="hostFactory">Factory invoked once when the harness starts.</param>
     public WebhookTestHarness(Func<IWebhookTestHost> hostFactory)
         : this(CreateAsyncHostFactory(hostFactory))
     {
     }
 
+    /// <summary>Creates a harness from an asynchronous host factory.</summary>
+    /// <param name="hostFactory">Factory invoked once when the harness starts.</param>
     public WebhookTestHarness(Func<CancellationToken, Task<IWebhookTestHost>> hostFactory)
     {
         ArgumentNullException.ThrowIfNull(hostFactory);
         _hostFactory = hostFactory;
     }
 
+    /// <summary>Creates a harness around an existing host instance.</summary>
+    /// <param name="host">Host owned and disposed by the harness.</param>
     public WebhookTestHarness(IWebhookTestHost host)
         : this(() => host)
     {
     }
 
+    /// <summary>Creates a harness from a synchronous client factory.</summary>
+    /// <param name="clientFactory">Factory invoked once when the harness starts.</param>
     public WebhookTestHarness(Func<HttpClient> clientFactory)
         : this(CreateAsyncClientHostFactory(clientFactory))
     {
     }
 
+    /// <summary>Creates a harness from an asynchronous client factory.</summary>
+    /// <param name="clientFactory">Factory invoked once when the harness starts.</param>
     public WebhookTestHarness(Func<Task<HttpClient>> clientFactory)
         : this(CreateAsyncClientHostFactory(clientFactory))
     {
     }
 
+    /// <summary>Creates a harness from a cancellation-aware client factory.</summary>
+    /// <param name="clientFactory">Factory invoked once when the harness starts.</param>
     public WebhookTestHarness(Func<CancellationToken, Task<HttpClient>> clientFactory)
         : this(CreateAsyncClientHostFactory(clientFactory))
     {
     }
 
+    /// <summary>Whether the host has been started and remains available.</summary>
     public bool IsStarted
     {
         get
@@ -60,6 +85,9 @@ public sealed class WebhookTestHarness : IDisposable, IAsyncDisposable
         }
     }
 
+    /// <summary>Starts the host once; repeated calls while started are no-ops.</summary>
+    /// <param name="cancellationToken">Token used to cancel startup.</param>
+    /// <returns>A task that completes when the host is ready or already started.</returns>
     public async Task StartAsync(CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
@@ -108,6 +136,9 @@ public sealed class WebhookTestHarness : IDisposable, IAsyncDisposable
         }
     }
 
+    /// <summary>Creates and tracks a client owned by the active host.</summary>
+    /// <returns>A client that the harness disposes during shutdown.</returns>
+    /// <exception cref="InvalidOperationException">The harness has not been started.</exception>
     public HttpClient CreateClient()
     {
         ThrowIfDisposed();
@@ -132,6 +163,10 @@ public sealed class WebhookTestHarness : IDisposable, IAsyncDisposable
         return client;
     }
 
+    /// <summary>Sends a request using the default response-content completion option.</summary>
+    /// <param name="request">Request to send; the harness does not take ownership of it.</param>
+    /// <param name="cancellationToken">Token used to cancel the send.</param>
+    /// <returns>The HTTP response.</returns>
     public Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request,
         CancellationToken cancellationToken = default)
@@ -139,6 +174,11 @@ public sealed class WebhookTestHarness : IDisposable, IAsyncDisposable
         return SendAsync(request, HttpCompletionOption.ResponseContentRead, cancellationToken);
     }
 
+    /// <summary>Sends a request with an explicit response completion option.</summary>
+    /// <param name="request">Request to send; the harness does not take ownership of it.</param>
+    /// <param name="completionOption">Controls when the response task completes.</param>
+    /// <param name="cancellationToken">Token used to cancel the send.</param>
+    /// <returns>The HTTP response.</returns>
     public async Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request,
         HttpCompletionOption completionOption,
@@ -151,6 +191,9 @@ public sealed class WebhookTestHarness : IDisposable, IAsyncDisposable
         return await client.SendAsync(request, completionOption, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>Stops the host and disposes clients created by the harness.</summary>
+    /// <param name="cancellationToken">Token used to cancel shutdown.</param>
+    /// <returns>A task that completes after host and client cleanup.</returns>
     public async Task StopAsync(CancellationToken cancellationToken = default)
     {
         if (Volatile.Read(ref _disposed) != 0)
@@ -170,11 +213,14 @@ public sealed class WebhookTestHarness : IDisposable, IAsyncDisposable
         }
     }
 
+    /// <summary>Synchronously stops and disposes the harness.</summary>
     public void Dispose()
     {
         DisposeAsync().AsTask().GetAwaiter().GetResult();
     }
 
+    /// <summary>Asynchronously stops and disposes the harness.</summary>
+    /// <returns>A task that completes after host and client cleanup.</returns>
     public async ValueTask DisposeAsync()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
@@ -194,6 +240,8 @@ public sealed class WebhookTestHarness : IDisposable, IAsyncDisposable
         }
     }
 
+    /// <summary>Returns the harness type name without exposing host details.</summary>
+    /// <returns>The type name.</returns>
     public override string ToString()
     {
         return nameof(WebhookTestHarness);
@@ -369,39 +417,56 @@ public sealed class WebhookTestHarness : IDisposable, IAsyncDisposable
     }
 }
 
+/// <summary>Typed <see cref="WebApplicationFactory{TEntryPoint}"/>-backed test harness.</summary>
+/// <typeparam name="TApplication">Application entry-point type used by the test server.</typeparam>
 public sealed class WebhookTestHarness<TApplication> : IDisposable, IAsyncDisposable
     where TApplication : class
 {
     private readonly WebhookTestHarness _inner;
 
+    /// <summary>Creates a harness with a default application factory.</summary>
     public WebhookTestHarness()
         : this(new WebApplicationFactory<TApplication>())
     {
     }
 
+    /// <summary>Creates a harness around an existing application factory.</summary>
+    /// <param name="factory">The test-server factory owned by the harness.</param>
     public WebhookTestHarness(WebApplicationFactory<TApplication> factory)
     {
         ArgumentNullException.ThrowIfNull(factory);
         _inner = new WebhookTestHarness(new WebApplicationFactoryHost(factory));
     }
 
+    /// <summary>Creates and configures an application factory before starting it.</summary>
+    /// <param name="configureFactory">Callback that customizes the factory.</param>
     public WebhookTestHarness(Action<WebApplicationFactory<TApplication>> configureFactory)
         : this(CreateFactory(configureFactory))
     {
     }
 
+    /// <summary>Whether the underlying test server is started.</summary>
     public bool IsStarted => _inner.IsStarted;
 
+    /// <summary>Starts the underlying test server.</summary>
+    /// <param name="cancellationToken">Token used to cancel startup.</param>
+    /// <returns>A task representing startup.</returns>
     public Task StartAsync(CancellationToken cancellationToken = default)
     {
         return _inner.StartAsync(cancellationToken);
     }
 
+    /// <summary>Creates a client from the underlying test server.</summary>
+    /// <returns>A client owned by the harness.</returns>
     public HttpClient CreateClient()
     {
         return _inner.CreateClient();
     }
 
+    /// <summary>Sends a request through the underlying test server.</summary>
+    /// <param name="request">Request to send.</param>
+    /// <param name="cancellationToken">Token used to cancel the send.</param>
+    /// <returns>The HTTP response.</returns>
     public Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request,
         CancellationToken cancellationToken = default)
@@ -409,6 +474,11 @@ public sealed class WebhookTestHarness<TApplication> : IDisposable, IAsyncDispos
         return _inner.SendAsync(request, cancellationToken);
     }
 
+    /// <summary>Sends a request with an explicit response completion option.</summary>
+    /// <param name="request">Request to send.</param>
+    /// <param name="completionOption">Controls when the response task completes.</param>
+    /// <param name="cancellationToken">Token used to cancel the send.</param>
+    /// <returns>The HTTP response.</returns>
     public Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request,
         HttpCompletionOption completionOption,
@@ -417,21 +487,29 @@ public sealed class WebhookTestHarness<TApplication> : IDisposable, IAsyncDispos
         return _inner.SendAsync(request, completionOption, cancellationToken);
     }
 
+    /// <summary>Stops the underlying test server and disposes its clients.</summary>
+    /// <param name="cancellationToken">Token used to cancel shutdown.</param>
+    /// <returns>A task representing shutdown.</returns>
     public Task StopAsync(CancellationToken cancellationToken = default)
     {
         return _inner.StopAsync(cancellationToken);
     }
 
+    /// <summary>Synchronously disposes the underlying harness.</summary>
     public void Dispose()
     {
         _inner.Dispose();
     }
 
+    /// <summary>Asynchronously disposes the underlying harness.</summary>
+    /// <returns>A task representing disposal.</returns>
     public ValueTask DisposeAsync()
     {
         return _inner.DisposeAsync();
     }
 
+    /// <summary>Returns the harness type name without exposing application details.</summary>
+    /// <returns>The type name.</returns>
     public override string ToString()
     {
         return nameof(WebhookTestHarness<TApplication>);

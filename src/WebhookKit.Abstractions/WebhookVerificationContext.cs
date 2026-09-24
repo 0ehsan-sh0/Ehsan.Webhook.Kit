@@ -9,7 +9,7 @@ public sealed class WebhookVerificationContext
     /// <summary>Configured provider name.</summary>
     public required string Provider { get; init; }
 
-    /// <summary>Exact raw request bytes covered by the signature.</summary>
+    /// <summary>Exact raw request bytes covered by the signature; callers must not mutate them during verification.</summary>
     public required byte[] RawBody { get; init; }
 
     /// <summary>Request headers (signature, timestamp, event identity). Multi-value per key.</summary>

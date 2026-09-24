@@ -11,6 +11,7 @@ using WebhookKit.AspNetCore.Responses;
 
 namespace WebhookKit.AspNetCore.Mvc;
 
+/// <summary>Runs WebhookKit ingestion before an annotated MVC action and binds the verified context.</summary>
 public sealed class WebhookEndpointFilter : IAsyncResourceFilter
 {
     internal static readonly object ContextItemKey = new();
@@ -23,6 +24,9 @@ public sealed class WebhookEndpointFilter : IAsyncResourceFilter
     private readonly IWebhookEndpointService _endpointService;
     private readonly WebhookResponseWriter _responseWriter;
 
+    /// <summary>Creates the MVC resource filter.</summary>
+    /// <param name="endpointService">Endpoint pipeline service.</param>
+    /// <param name="responseWriter">Optional writer used for safe configuration failures.</param>
     public WebhookEndpointFilter(
         IWebhookEndpointService endpointService,
         WebhookResponseWriter? responseWriter = null)
@@ -31,6 +35,10 @@ public sealed class WebhookEndpointFilter : IAsyncResourceFilter
         _responseWriter = responseWriter ?? new WebhookResponseWriter(new DefaultWebhookResponseFormatter());
     }
 
+    /// <summary>Runs endpoint processing and conditionally invokes the MVC action.</summary>
+    /// <param name="context">The current resource execution context.</param>
+    /// <param name="next">Continuation that invokes the action pipeline.</param>
+    /// <returns>A task that completes after the action or safe short-circuit response.</returns>
     public async Task OnResourceExecutionAsync(
         ResourceExecutingContext context,
         ResourceExecutionDelegate next)

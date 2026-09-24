@@ -4,6 +4,7 @@ using WebhookKit.Abstractions;
 
 namespace WebhookKit.AspNetCore.Pipeline;
 
+/// <summary>Safe result returned by the ASP.NET Core endpoint pipeline.</summary>
 public sealed class WebhookEndpointResult
 {
     private WebhookEndpointResult(
@@ -22,27 +23,38 @@ public sealed class WebhookEndpointResult
         Context = context;
     }
 
+    /// <summary>Endpoint outcome selected by the pipeline.</summary>
     public WebhookEndpointOutcome Outcome { get; }
 
+    /// <summary>HTTP status selected for the outcome.</summary>
     public int StatusCode { get; }
 
+    /// <summary>Stable machine-readable response code.</summary>
     public string Code { get; }
 
+    /// <summary>Compatibility alias for <see cref="Code"/>.</summary>
     public string SafeCode => Code;
 
+    /// <summary>Safe human-readable response message.</summary>
     public string Message { get; }
 
+    /// <summary>Compatibility alias for <see cref="Message"/>.</summary>
     public string SafeMessage => Message;
 
+    /// <summary>Optional trace identifier for support correlation.</summary>
     public string? TraceId { get; }
 
+    /// <summary>Verified context when one was created; raw payload details remain private to the context.</summary>
     public WebhookContext? Context { get; }
 
+    /// <summary>Whether the outcome is an acknowledgement success.</summary>
     public bool IsSuccess => Outcome is WebhookEndpointOutcome.Processed or
         WebhookEndpointOutcome.Accepted or
         WebhookEndpointOutcome.Duplicate or
         WebhookEndpointOutcome.Ignored;
 
+    /// <summary>Returns the outcome and safe code without response secrets.</summary>
+    /// <returns>A compact diagnostic string.</returns>
     public override string ToString()
     {
         return $"{Outcome}:{Code}";

@@ -5,8 +5,11 @@ using WebhookKit.Core.Options;
 
 namespace WebhookKit.Testing;
 
+/// <summary>Test utility that creates and verifies provider-compatible HMAC signatures.</summary>
+/// <remarks>The generator is intended for tests; it accepts caller-supplied secrets but never logs or exposes them.</remarks>
 public sealed class WebhookSignatureGenerator
 {
+    /// <summary>Default separator for timestamp-prefixed signing input.</summary>
     public const string DefaultTimestampSeparator = ".";
     private const string VerificationFailureReason = "Signature verification failed.";
 
@@ -17,6 +20,13 @@ public sealed class WebhookSignatureGenerator
     private readonly WebhookSignatureInput _input;
     private readonly string _timestampSeparator;
 
+    /// <summary>Creates a generator from explicit algorithm, encoding, and input settings.</summary>
+    /// <param name="primarySecret">Secret used to create signatures and the first verification candidate.</param>
+    /// <param name="algorithm">HMAC algorithm used for signing and verification.</param>
+    /// <param name="encoding">Signature header encoding.</param>
+    /// <param name="input">Signing input construction mode.</param>
+    /// <param name="timestampSeparator">Separator for timestamp-prefixed input; defaults to <see cref="DefaultTimestampSeparator"/>.</param>
+    /// <param name="rotationSecrets">Additional secrets accepted during verification.</param>
     public WebhookSignatureGenerator(
         string primarySecret,
         WebhookHashAlgorithm algorithm = WebhookHashAlgorithm.HmacSha256,
@@ -36,6 +46,10 @@ public sealed class WebhookSignatureGenerator
         ValidateEncoding(_encoding);
     }
 
+    /// <summary>Creates a generator from a primary secret and signature options.</summary>
+    /// <param name="primarySecret">Secret used to create signatures.</param>
+    /// <param name="options">Options supplying algorithm, encoding, input, separator, and rotation secrets.</param>
+    /// <param name="rotationSecrets">Additional secrets appended to the options' rotation list.</param>
     public WebhookSignatureGenerator(
         string primarySecret,
         WebhookSignatureOptions options,
@@ -50,28 +64,53 @@ public sealed class WebhookSignatureGenerator
     {
     }
 
+    /// <summary>Creates a generator from options whose primary secret is configured in <see cref="WebhookSignatureOptions.Secret"/>.</summary>
+    /// <param name="options">Signature options containing the primary secret and generation settings.</param>
     public WebhookSignatureGenerator(WebhookSignatureOptions options)
         : this(GetPrimarySecret(options), options ?? throw new ArgumentNullException(nameof(options)))
     {
     }
 
+    /// <summary>Configured HMAC algorithm.</summary>
     public WebhookHashAlgorithm Algorithm => _algorithm;
+
+    /// <summary>Configured signature encoding.</summary>
     public WebhookSignatureEncoding Encoding => _encoding;
+
+    /// <summary>Configured signing input mode.</summary>
     public WebhookSignatureInput Input => _input;
+
+    /// <summary>Compatibility alias for <see cref="Input"/>.</summary>
     public WebhookSignatureInput SigningInput => _input;
+
+    /// <summary>Separator used for timestamp-prefixed signing input.</summary>
     public string TimestampSeparator => _timestampSeparator;
 
+    /// <summary>Generates a signature for an exact body using the configured input mode.</summary>
+    /// <param name="rawBody">The exact body bytes; the array is not modified.</param>
+    /// <param name="timestamp">Optional timestamp included by timestamp-prefixed modes.</param>
+    /// <returns>The encoded signature.</returns>
     public string Generate(byte[] rawBody, string? timestamp = null)
     {
         ArgumentNullException.ThrowIfNull(rawBody);
         return Generate(rawBody.AsSpan(), timestamp);
     }
 
+    /// <summary>Generates a signature for a body span using the configured input mode.</summary>
+    /// <param name="rawBody">The exact body bytes; the span is not modified.</param>
+    /// <param name="timestamp">Optional timestamp included by timestamp-prefixed modes.</param>
+    /// <returns>The encoded signature.</returns>
     public string Generate(ReadOnlySpan<byte> rawBody, string? timestamp = null)
     {
         return GenerateForInput(rawBody, timestamp, _input, _timestampSeparator);
     }
 
+    /// <summary>Generates a signature with an explicit input mode and separator.</summary>
+    /// <param name="rawBody">The exact body bytes.</param>
+    /// <param name="timestamp">Timestamp required by timestamp-prefixed modes.</param>
+    /// <param name="input">Signing input construction mode.</param>
+    /// <param name="timestampSeparator">Optional separator for timestamp-prefixed input.</param>
+    /// <returns>The encoded signature.</returns>
     public string Generate(
         byte[] rawBody,
         string timestamp,
@@ -82,6 +121,12 @@ public sealed class WebhookSignatureGenerator
         return GenerateForInput(rawBody.AsSpan(), timestamp, input, timestampSeparator ?? DefaultTimestampSeparator);
     }
 
+    /// <summary>Generates a signature with an explicit input mode and separator.</summary>
+    /// <param name="rawBody">The exact body bytes.</param>
+    /// <param name="timestamp">Timestamp required by timestamp-prefixed modes.</param>
+    /// <param name="input">Signing input construction mode.</param>
+    /// <param name="timestampSeparator">Optional separator for timestamp-prefixed input.</param>
+    /// <returns>The encoded signature.</returns>
     public string Generate(
         ReadOnlySpan<byte> rawBody,
         string timestamp,
@@ -91,17 +136,28 @@ public sealed class WebhookSignatureGenerator
         return GenerateForInput(rawBody, timestamp, input, timestampSeparator ?? DefaultTimestampSeparator);
     }
 
+    /// <summary>Generates a signature over caller-supplied signing input.</summary>
+    /// <param name="signingInput">Bytes already arranged in the provider's signing format.</param>
+    /// <returns>The encoded signature.</returns>
     public string GenerateCustom(byte[] signingInput)
     {
         ArgumentNullException.ThrowIfNull(signingInput);
         return GenerateCustom(signingInput.AsSpan());
     }
 
+    /// <summary>Generates a signature over caller-supplied signing input.</summary>
+    /// <param name="signingInput">Bytes already arranged in the provider's signing format.</param>
+    /// <returns>The encoded signature.</returns>
     public string GenerateCustom(ReadOnlySpan<byte> signingInput)
     {
         return Encode(ComputeHash(_primarySecret, signingInput));
     }
 
+    /// <summary>Generates a signature using a caller-defined signing-input transform.</summary>
+    /// <param name="rawBody">The exact request body supplied to the transform.</param>
+    /// <param name="timestamp">Optional timestamp supplied to the transform.</param>
+    /// <param name="customSigningInput">Transform that returns the exact bytes to sign.</param>
+    /// <returns>The encoded signature.</returns>
     public string GenerateWithCustomInput(
         byte[] rawBody,
         string? timestamp,
@@ -113,6 +169,11 @@ public sealed class WebhookSignatureGenerator
         return GenerateCustom(input.Span);
     }
 
+    /// <summary>Generates a signature using a caller-defined signing-input transform.</summary>
+    /// <param name="rawBody">The exact request body supplied to the transform.</param>
+    /// <param name="timestamp">Optional timestamp supplied to the transform.</param>
+    /// <param name="customSigningInput">Transform that returns the exact bytes to sign.</param>
+    /// <returns>The encoded signature.</returns>
     public string GenerateWithCustomInput(
         ReadOnlySpan<byte> rawBody,
         string? timestamp,
@@ -123,26 +184,51 @@ public sealed class WebhookSignatureGenerator
         return GenerateCustom(input.Span);
     }
 
+    /// <summary>Compatibility alias for generating over explicit signing input.</summary>
+    /// <param name="signingInput">Bytes already arranged in the provider's signing format.</param>
+    /// <returns>The encoded signature.</returns>
     public string GenerateFromSigningInput(byte[] signingInput)
     {
         return GenerateCustom(signingInput);
     }
 
+    /// <summary>Verifies a signature using the configured input mode.</summary>
+    /// <param name="signature">Encoded signature to check.</param>
+    /// <param name="rawBody">The exact body bytes.</param>
+    /// <param name="timestamp">Optional timestamp included by the configured input mode.</param>
+    /// <returns><see langword="true"/> when a configured secret matches.</returns>
     public bool Verify(string signature, byte[] rawBody, string? timestamp = null)
     {
         return Verify(signature, rawBody.AsSpan(), timestamp);
     }
 
+    /// <summary>Verifies a signature using the configured input mode.</summary>
+    /// <param name="signature">Encoded signature to check.</param>
+    /// <param name="rawBody">The exact body bytes.</param>
+    /// <param name="timestamp">Optional timestamp included by the configured input mode.</param>
+    /// <returns><see langword="true"/> when a configured secret matches.</returns>
     public bool Verify(string signature, ReadOnlySpan<byte> rawBody, string? timestamp = null)
     {
         return VerifyResult(signature, rawBody, timestamp).IsValid;
     }
 
+    /// <summary>Compatibility overload with body-first argument order.</summary>
+    /// <param name="rawBody">The exact body bytes.</param>
+    /// <param name="signature">Encoded signature to check.</param>
+    /// <param name="timestamp">Optional timestamp included by the configured input mode.</param>
+    /// <returns><see langword="true"/> when a configured secret matches.</returns>
     public bool Verify(byte[] rawBody, string signature, string? timestamp = null)
     {
         return Verify(signature, rawBody, timestamp);
     }
 
+    /// <summary>Verifies a signature with explicit input settings.</summary>
+    /// <param name="signature">Encoded signature to check.</param>
+    /// <param name="rawBody">The exact body bytes.</param>
+    /// <param name="timestamp">Timestamp required by timestamp-prefixed modes.</param>
+    /// <param name="input">Signing input construction mode.</param>
+    /// <param name="timestampSeparator">Optional separator for timestamp-prefixed input.</param>
+    /// <returns><see langword="true"/> when a configured secret matches.</returns>
     public bool Verify(
         string signature,
         byte[] rawBody,
@@ -154,6 +240,13 @@ public sealed class WebhookSignatureGenerator
         return VerifyResult(signature, rawBody.AsSpan(), timestamp, input, timestampSeparator).IsValid;
     }
 
+    /// <summary>Verifies a signature with explicit input settings.</summary>
+    /// <param name="signature">Encoded signature to check.</param>
+    /// <param name="rawBody">The exact body bytes.</param>
+    /// <param name="timestamp">Timestamp required by timestamp-prefixed modes.</param>
+    /// <param name="input">Signing input construction mode.</param>
+    /// <param name="timestampSeparator">Optional separator for timestamp-prefixed input.</param>
+    /// <returns><see langword="true"/> when a configured secret matches.</returns>
     public bool Verify(
         string signature,
         ReadOnlySpan<byte> rawBody,
@@ -164,17 +257,31 @@ public sealed class WebhookSignatureGenerator
         return VerifyResult(signature, rawBody, timestamp, input, timestampSeparator).IsValid;
     }
 
+    /// <summary>Verifies a signature over caller-supplied signing input.</summary>
+    /// <param name="signature">Encoded signature to check.</param>
+    /// <param name="signingInput">Bytes already arranged in the provider's signing format.</param>
+    /// <returns><see langword="true"/> when a configured secret matches.</returns>
     public bool VerifyCustom(string signature, byte[] signingInput)
     {
         ArgumentNullException.ThrowIfNull(signingInput);
         return VerifyCustom(signature, signingInput.AsSpan());
     }
 
+    /// <summary>Verifies a signature over caller-supplied signing input.</summary>
+    /// <param name="signature">Encoded signature to check.</param>
+    /// <param name="signingInput">Bytes already arranged in the provider's signing format.</param>
+    /// <returns><see langword="true"/> when a configured secret matches.</returns>
     public bool VerifyCustom(string signature, ReadOnlySpan<byte> signingInput)
     {
         return VerifyBytes(signature, signingInput).IsValid;
     }
 
+    /// <summary>Verifies a signature using a caller-defined signing-input transform.</summary>
+    /// <param name="signature">Encoded signature to check.</param>
+    /// <param name="rawBody">The exact body bytes supplied to the transform.</param>
+    /// <param name="timestamp">Optional timestamp supplied to the transform.</param>
+    /// <param name="customSigningInput">Transform that returns the exact bytes to verify.</param>
+    /// <returns><see langword="true"/> when a configured secret matches.</returns>
     public bool VerifyWithCustomInput(
         string signature,
         byte[] rawBody,
@@ -187,6 +294,12 @@ public sealed class WebhookSignatureGenerator
         return VerifyCustom(signature, input.Span);
     }
 
+    /// <summary>Verifies a signature and returns a structured result.</summary>
+    /// <param name="signature">Encoded signature to check.</param>
+    /// <param name="rawBody">The exact body bytes.</param>
+    /// <param name="timestamp">Optional timestamp included by the configured input mode.</param>
+    /// <param name="cancellationToken">Token used to cancel verification.</param>
+    /// <returns>A result whose failure reason is safe and contains no secret data.</returns>
     public WebhookVerificationResult VerifyResult(
         string signature,
         byte[] rawBody,
@@ -197,6 +310,12 @@ public sealed class WebhookSignatureGenerator
         return VerifyResult(signature, rawBody.AsSpan(), timestamp, cancellationToken);
     }
 
+    /// <summary>Verifies a signature and returns a structured result.</summary>
+    /// <param name="signature">Encoded signature to check.</param>
+    /// <param name="rawBody">The exact body bytes.</param>
+    /// <param name="timestamp">Optional timestamp included by the configured input mode.</param>
+    /// <param name="cancellationToken">Token used to cancel verification.</param>
+    /// <returns>A result whose failure reason is safe and contains no secret data.</returns>
     public WebhookVerificationResult VerifyResult(
         string signature,
         ReadOnlySpan<byte> rawBody,
@@ -206,6 +325,14 @@ public sealed class WebhookSignatureGenerator
         return VerifyResult(signature, rawBody, timestamp, _input, _timestampSeparator, cancellationToken);
     }
 
+    /// <summary>Verifies a signature with explicit input settings and returns a structured result.</summary>
+    /// <param name="signature">Encoded signature to check.</param>
+    /// <param name="rawBody">The exact body bytes.</param>
+    /// <param name="timestamp">Timestamp required by timestamp-prefixed modes.</param>
+    /// <param name="input">Signing input construction mode.</param>
+    /// <param name="timestampSeparator">Optional separator for timestamp-prefixed input.</param>
+    /// <param name="cancellationToken">Token used to cancel verification.</param>
+    /// <returns>A result whose failure reason is safe and contains no secret data.</returns>
     public WebhookVerificationResult VerifyResult(
         string signature,
         ReadOnlySpan<byte> rawBody,
@@ -219,6 +346,11 @@ public sealed class WebhookSignatureGenerator
         return VerifyBytes(signature, signingInput, cancellationToken);
     }
 
+    /// <summary>Verifies caller-supplied signing input and returns a structured result.</summary>
+    /// <param name="signature">Encoded signature to check.</param>
+    /// <param name="signingInput">Bytes already arranged in the provider's signing format.</param>
+    /// <param name="cancellationToken">Token used to cancel verification.</param>
+    /// <returns>A result whose failure reason is safe and contains no secret data.</returns>
     public WebhookVerificationResult VerifyCustomResult(
         string signature,
         byte[] signingInput,
@@ -228,6 +360,11 @@ public sealed class WebhookSignatureGenerator
         return VerifyCustomResult(signature, signingInput.AsSpan(), cancellationToken);
     }
 
+    /// <summary>Verifies caller-supplied signing input and returns a structured result.</summary>
+    /// <param name="signature">Encoded signature to check.</param>
+    /// <param name="signingInput">Bytes already arranged in the provider's signing format.</param>
+    /// <param name="cancellationToken">Token used to cancel verification.</param>
+    /// <returns>A result whose failure reason is safe and contains no secret data.</returns>
     public WebhookVerificationResult VerifyCustomResult(
         string signature,
         ReadOnlySpan<byte> signingInput,
@@ -236,6 +373,13 @@ public sealed class WebhookSignatureGenerator
         return VerifyBytes(signature, signingInput, cancellationToken);
     }
 
+    /// <summary>Verifies a caller-defined signing input and returns a structured result.</summary>
+    /// <param name="signature">Encoded signature to check.</param>
+    /// <param name="rawBody">The exact body bytes supplied to the transform.</param>
+    /// <param name="timestamp">Optional timestamp supplied to the transform.</param>
+    /// <param name="customSigningInput">Transform that returns the exact bytes to verify.</param>
+    /// <param name="cancellationToken">Token used to cancel verification.</param>
+    /// <returns>A result whose failure reason is safe and contains no secret data.</returns>
     public WebhookVerificationResult VerifyWithCustomInput(
         string signature,
         byte[] rawBody,
@@ -249,6 +393,8 @@ public sealed class WebhookSignatureGenerator
         return VerifyCustomResult(signature, input.Span, cancellationToken);
     }
 
+    /// <summary>Returns the utility type name without exposing configuration or secrets.</summary>
+    /// <returns>The type name.</returns>
     public override string ToString()
     {
         return nameof(WebhookSignatureGenerator);

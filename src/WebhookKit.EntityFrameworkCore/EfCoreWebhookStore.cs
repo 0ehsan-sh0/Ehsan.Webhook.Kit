@@ -6,6 +6,8 @@ using WebhookKit.Abstractions;
 
 namespace WebhookKit.EntityFrameworkCore;
 
+/// <summary>Entity Framework Core persistence store for webhook records and processing leases.</summary>
+/// <typeparam name="TContext">Application DbContext type containing <see cref="WebhookEntity"/>.</typeparam>
 public sealed class EfCoreWebhookStore<TContext> : IWebhookStore
     where TContext : DbContext
 {
@@ -14,11 +16,18 @@ public sealed class EfCoreWebhookStore<TContext> : IWebhookStore
     private readonly IWebhookClock _clock;
     private readonly IWebhookUniqueConstraintDetector _uniqueConstraintDetector;
 
+    /// <summary>Creates a store using the default provider-neutral unique-constraint detector.</summary>
+    /// <param name="context">The application EF Core context.</param>
+    /// <param name="clock">Clock used for lease timestamps.</param>
     public EfCoreWebhookStore(TContext context, IWebhookClock clock)
         : this(context, clock, new ProviderNeutralWebhookUniqueConstraintDetector())
     {
     }
 
+    /// <summary>Creates a store with a custom unique-constraint detector.</summary>
+    /// <param name="context">The application EF Core context.</param>
+    /// <param name="clock">Clock used for lease timestamps.</param>
+    /// <param name="uniqueConstraintDetector">Detector used to translate provider-specific uniqueness errors.</param>
     public EfCoreWebhookStore(
         TContext context,
         IWebhookClock clock,
@@ -32,6 +41,11 @@ public sealed class EfCoreWebhookStore<TContext> : IWebhookStore
 
     private DbSet<WebhookEntity> Entities => _context.Set<WebhookEntity>();
 
+    /// <summary>Gets a record by provider and event ID without tracking the entity.</summary>
+    /// <param name="provider">Provider name normalized by the store.</param>
+    /// <param name="eventId">Provider event ID.</param>
+    /// <param name="cancellationToken">Token used to cancel the database query.</param>
+    /// <returns>A detached record, or <see langword="null"/> when absent.</returns>
     public async ValueTask<WebhookRecord?> GetAsync(
         string provider,
         string eventId,
@@ -48,6 +62,10 @@ public sealed class EfCoreWebhookStore<TContext> : IWebhookStore
         return entity is null ? null : ToRecord(entity);
     }
 
+    /// <summary>Attempts to insert a record and translates a unique-key conflict to a duplicate result.</summary>
+    /// <param name="record">Record to persist.</param>
+    /// <param name="cancellationToken">Token used to cancel the database operation.</param>
+    /// <returns><see langword="true"/> when inserted; <see langword="false"/> for a uniqueness conflict.</returns>
     public async ValueTask<bool> TryCreateAsync(
         WebhookRecord record,
         CancellationToken cancellationToken = default)
@@ -78,6 +96,10 @@ public sealed class EfCoreWebhookStore<TContext> : IWebhookStore
         }
     }
 
+    /// <summary>Persists a record update using relational or non-relational concurrency rules.</summary>
+    /// <param name="record">Updated record snapshot.</param>
+    /// <param name="cancellationToken">Token used to cancel the database operation.</param>
+    /// <returns>A task that completes when the update is applied or ignored.</returns>
     public async ValueTask UpdateAsync(
         WebhookRecord record,
         CancellationToken cancellationToken = default)
@@ -94,6 +116,10 @@ public sealed class EfCoreWebhookStore<TContext> : IWebhookStore
         }
     }
 
+    /// <summary>Gets a record by Webhook ID without tracking the entity.</summary>
+    /// <param name="webhookId">Transmission identifier.</param>
+    /// <param name="cancellationToken">Token used to cancel the database query.</param>
+    /// <returns>A detached record, or <see langword="null"/> when absent.</returns>
     public async ValueTask<WebhookRecord?> GetByWebhookIdAsync(
         string webhookId,
         CancellationToken cancellationToken = default)
@@ -107,6 +133,12 @@ public sealed class EfCoreWebhookStore<TContext> : IWebhookStore
         return entity is null ? null : ToRecord(entity);
     }
 
+    /// <summary>Atomically claims a received or expired processing record using the configured concurrency strategy.</summary>
+    /// <param name="webhookId">Transmission identifier.</param>
+    /// <param name="leaseOwner">Owner recorded for the lease.</param>
+    /// <param name="leaseDuration">Positive lease duration.</param>
+    /// <param name="cancellationToken">Token used to cancel the database operation.</param>
+    /// <returns><see langword="true"/> when the lease was acquired.</returns>
     public async ValueTask<bool> TryClaimAsync(
         string webhookId,
         string leaseOwner,
@@ -173,6 +205,11 @@ public sealed class EfCoreWebhookStore<TContext> : IWebhookStore
         return await SaveNonRelationalAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>Releases an owned processing lease.</summary>
+    /// <param name="webhookId">Transmission identifier.</param>
+    /// <param name="leaseOwner">Current lease owner.</param>
+    /// <param name="cancellationToken">Token used to cancel the database operation.</param>
+    /// <returns><see langword="true"/> when the owned lease was released.</returns>
     public async ValueTask<bool> ReleaseAsync(
         string webhookId,
         string leaseOwner,
@@ -223,6 +260,12 @@ public sealed class EfCoreWebhookStore<TContext> : IWebhookStore
         return await SaveNonRelationalAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>Marks an owned processing record as processed.</summary>
+    /// <param name="webhookId">Transmission identifier.</param>
+    /// <param name="leaseOwner">Current lease owner.</param>
+    /// <param name="processedAt">Completion timestamp.</param>
+    /// <param name="cancellationToken">Token used to cancel the database operation.</param>
+    /// <returns><see langword="true"/> when the transition was applied.</returns>
     public async ValueTask<bool> MarkProcessedAsync(
         string webhookId,
         string leaseOwner,
@@ -274,6 +317,13 @@ public sealed class EfCoreWebhookStore<TContext> : IWebhookStore
         return await SaveNonRelationalAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>Marks an owned processing record as failed with a normalized safe reason.</summary>
+    /// <param name="webhookId">Transmission identifier.</param>
+    /// <param name="leaseOwner">Current lease owner.</param>
+    /// <param name="failedAt">Failure timestamp.</param>
+    /// <param name="failureReason">Optional code-like reason; unsafe values are normalized.</param>
+    /// <param name="cancellationToken">Token used to cancel the database operation.</param>
+    /// <returns><see langword="true"/> when the transition was applied.</returns>
     public async ValueTask<bool> MarkFailedAsync(
         string webhookId,
         string leaseOwner,
@@ -328,6 +378,12 @@ public sealed class EfCoreWebhookStore<TContext> : IWebhookStore
         return await SaveNonRelationalAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>Gets received records and expired leases eligible for recovery.</summary>
+    /// <param name="now">Current time used for lease expiry.</param>
+    /// <param name="expiredLeaseAge">Minimum lease age before recovery.</param>
+    /// <param name="limit">Maximum records to return.</param>
+    /// <param name="cancellationToken">Token used to cancel the database query.</param>
+    /// <returns>Detached records ordered by receipt time.</returns>
     public async ValueTask<IReadOnlyList<WebhookRecord>> GetRecoverableAsync(
         DateTimeOffset now,
         TimeSpan expiredLeaseAge,
@@ -889,13 +945,21 @@ public sealed class EfCoreWebhookStore<TContext> : IWebhookStore
         string? FailureCode);
 }
 
+/// <summary>Detects provider-specific unique constraint failures for atomic deduplication.</summary>
 public interface IWebhookUniqueConstraintDetector
 {
+    /// <summary>Determines whether a database update failed because a unique key already exists.</summary>
+    /// <param name="exception">The update exception to inspect.</param>
+    /// <returns><see langword="true"/> when the exception represents a uniqueness conflict.</returns>
     bool IsUniqueConstraintViolation(DbUpdateException exception);
 }
 
+/// <summary>Recognizes common SQL Server, PostgreSQL, MySQL, and SQLite uniqueness errors.</summary>
 public sealed class ProviderNeutralWebhookUniqueConstraintDetector : IWebhookUniqueConstraintDetector
 {
+    /// <summary>Determines whether an update exception represents a unique constraint conflict.</summary>
+    /// <param name="exception">The update exception to inspect.</param>
+    /// <returns><see langword="true"/> when a recognized provider error is found.</returns>
     public bool IsUniqueConstraintViolation(DbUpdateException exception)
     {
         ArgumentNullException.ThrowIfNull(exception);

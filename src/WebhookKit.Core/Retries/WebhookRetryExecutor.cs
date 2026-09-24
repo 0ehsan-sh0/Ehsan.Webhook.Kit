@@ -5,8 +5,18 @@ using WebhookKit.Core.Processing;
 
 namespace WebhookKit.Core.Retries;
 
+/// <summary>Executes dispatch attempts according to a retry policy.</summary>
 public interface IWebhookRetryExecutor
 {
+    /// <summary>Runs dispatch until success, a non-retryable failure, or the attempt limit.</summary>
+    /// <param name="processor">The dispatch operation.</param>
+    /// <param name="context">The verified context passed to the processor.</param>
+    /// <param name="options">Retry limits, backoff, and jitter settings.</param>
+    /// <param name="persistAttemptAsync">Optional callback invoked after each attempt.</param>
+    /// <param name="retryAsync">Optional callback invoked before each retry wait.</param>
+    /// <param name="firstAttempt">One-based attempt number to resume from.</param>
+    /// <param name="cancellationToken">Token used to cancel dispatch, callbacks, and waits.</param>
+    /// <returns>The final dispatch result.</returns>
     Task<WebhookDispatchResult> ExecuteAsync(
         IWebhookDispatchProcessor processor,
         WebhookContext context,
@@ -17,11 +27,15 @@ public interface IWebhookRetryExecutor
         CancellationToken cancellationToken = default);
 }
 
+/// <summary>Default retry executor that persists attempts and applies configured backoff.</summary>
 public sealed class WebhookRetryExecutor : IWebhookRetryExecutor
 {
     private readonly WebhookRetryPolicy _policy;
     private readonly IWebhookRetryDelay _delay;
 
+    /// <summary>Creates a retry executor.</summary>
+    /// <param name="policy">Policy used to calculate retry delays.</param>
+    /// <param name="delay">Optional delay abstraction; a task-based delay is created when omitted.</param>
     public WebhookRetryExecutor(
         WebhookRetryPolicy policy,
         IWebhookRetryDelay? delay = null)
@@ -30,6 +44,15 @@ public sealed class WebhookRetryExecutor : IWebhookRetryExecutor
         _delay = delay ?? new TaskWebhookRetryDelay();
     }
 
+    /// <summary>Runs dispatch attempts with configured backoff and cancellation.</summary>
+    /// <param name="processor">The dispatch operation.</param>
+    /// <param name="context">The verified context.</param>
+    /// <param name="options">Retry settings; values are validated before execution.</param>
+    /// <param name="persistAttemptAsync">Optional attempt persistence callback.</param>
+    /// <param name="retryAsync">Optional retry notification callback.</param>
+    /// <param name="firstAttempt">One-based attempt number to resume from.</param>
+    /// <param name="cancellationToken">Token used to cancel the operation.</param>
+    /// <returns>The final dispatch result.</returns>
     public async Task<WebhookDispatchResult> ExecuteAsync(
         IWebhookDispatchProcessor processor,
         WebhookContext context,

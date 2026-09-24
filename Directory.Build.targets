@@ -1,0 +1,39 @@
+<Project>
+  <Target Name="ConfigureWebhookKitReleaseMetadata"
+          BeforeTargets="PrepareForBuild;_LoadPackInputItems;_GetPackageFiles;GenerateNuspec;Pack"
+          Condition="'$(IsPackable)' == 'true' And '$(Configuration)' == 'Release'">
+    <PropertyGroup>
+      <GenerateDocumentationFile Condition="'$(WebhookKitDocumentationDefault)' == 'true'">true</GenerateDocumentationFile>
+      <DocumentationFile Condition="'$(WebhookKitDocumentationDefault)' == 'true' And '$(DocumentationFile)' == ''">$(IntermediateOutputPath)$(AssemblyName).xml</DocumentationFile>
+      <CopyDocumentationFileToOutputDirectory Condition="'$(WebhookKitDocumentationDefault)' == 'true'">true</CopyDocumentationFileToOutputDirectory>
+      <_DocumentationFileProduced Condition="'$(WebhookKitDocumentationDefault)' == 'true'">true</_DocumentationFileProduced>
+      <PackageReadmeFile Condition="'$(PackageReadmeFile)' == ''">README.md</PackageReadmeFile>
+    </PropertyGroup>
+    <ItemGroup Condition="'$(WebhookKitDocumentationDefault)' == 'true' And '$(DocumentationFile)' != ''">
+      <DocFileItem Remove="$(DocumentationFile)" />
+      <DocFileItem Include="$(DocumentationFile)" />
+      <FinalDocFile Remove="@(FinalDocFile)" />
+      <FinalDocFile Include="@(DocFileItem->'$(OutDir)%(Filename)%(Extension)')" />
+    </ItemGroup>
+    <ItemGroup Condition="'$(WebhookKitDocumentationDefault)' == 'true' And '$(TargetFramework)' != '' And '$(DocumentationFile)' != ''">
+      <DocumentationProjectOutputGroupOutput Remove="$(DocumentationFile)" />
+      <DocumentationProjectOutputGroupOutput Include="$(DocumentationFile)">
+        <FinalOutputPath>$(OutDir)$(TargetName).xml</FinalOutputPath>
+        <IsKeyOutput>true</IsKeyOutput>
+        <TargetPath>$(TargetName).xml</TargetPath>
+      </DocumentationProjectOutputGroupOutput>
+    </ItemGroup>
+  </Target>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Release' And '$(IsPackable)' != 'false' And '$(IsTestProject)' != 'true'">
+    <PackageReadmeFile Condition="'$(PackageReadmeFile)' == ''">README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(Configuration)' == 'Release' And '$(IsPackable)' != 'false' And '$(IsTestProject)' != 'true'">
+    <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(IsPackable)' == 'true'">
+    <PackageReference Include="Microsoft.SourceLink.GitHub" PrivateAssets="all" />
+  </ItemGroup>
+</Project>

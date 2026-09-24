@@ -2,12 +2,16 @@ using Microsoft.Extensions.Options;
 
 namespace WebhookKit.Redis;
 
+/// <summary>Configures Redis keys and retention periods for the webhook store.</summary>
 public sealed class RedisWebhookStoreOptions
 {
+    /// <summary>Prefix used for all Redis webhook keys.</summary>
     public string KeyPrefix { get; set; } = "webhookkit";
 
+    /// <summary>TTL for provider/event deduplication keys.</summary>
     public TimeSpan DeduplicationRetention { get; set; } = TimeSpan.FromDays(7);
 
+    /// <summary>TTL for persisted webhook records.</summary>
     public TimeSpan RecordRetention { get; set; } = TimeSpan.FromDays(30);
 
     internal void Validate()

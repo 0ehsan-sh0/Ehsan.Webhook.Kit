@@ -11,38 +11,57 @@ using WebhookKit.Core.Retries;
 
 namespace WebhookKit.Core.Processing;
 
+/// <summary>Outcome of verification, admission, and processing for one delivery.</summary>
 public enum WebhookIngestionStatus
 {
+    /// <summary>Verification or required metadata rejected the delivery.</summary>
     Rejected = 0,
+    /// <summary>The provider event was already recorded.</summary>
     Duplicate = 1,
+    /// <summary>Synchronous processing completed successfully.</summary>
     Processed = 2,
+    /// <summary>No handler matched the verified event type.</summary>
     Ignored = 3,
+    /// <summary>Processing failed after the configured retry policy.</summary>
     Failed = 4,
+    /// <summary>The delivery was admitted for asynchronous processing.</summary>
     Accepted = 5,
+    /// <summary>Compatibility alias for <see cref="Accepted"/>.</summary>
     Admitted = Accepted
 }
 
+/// <summary>Request metadata and exact bytes supplied to the ingestion service.</summary>
 public sealed class WebhookIngestionRequest
 {
+    /// <summary>WebhookKit transmission identifier assigned at ingress.</summary>
     public required string WebhookId { get; init; }
 
+    /// <summary>Optional application correlation identifier.</summary>
     public string? CorrelationId { get; init; }
 
+    /// <summary>Configured provider name.</summary>
     public required string Provider { get; init; }
 
+    /// <summary>HTTP method of the ingress request.</summary>
     public required string HttpMethod { get; init; }
 
+    /// <summary>Request path of the ingress request.</summary>
     public required string RequestPath { get; init; }
 
+    /// <summary>Request headers; values are copied before asynchronous processing.</summary>
     public required IReadOnlyDictionary<string, string[]> Headers { get; init; }
 
+    /// <summary>Exact request bytes used for verification and payload deserialization.</summary>
     public required ReadOnlyMemory<byte> RawBody { get; init; }
 
+    /// <summary>Optional request content type.</summary>
     public string? ContentType { get; init; }
 
+    /// <summary>Optional request content length.</summary>
     public long? ContentLength { get; init; }
 }
 
+/// <summary>Safe result of synchronous or asynchronous webhook ingestion.</summary>
 public sealed class WebhookIngestionResult
 {
     private WebhookIngestionResult(
@@ -65,22 +84,31 @@ public sealed class WebhookIngestionResult
         Exception = exception;
     }
 
+    /// <summary>Overall ingestion outcome.</summary>
     public WebhookIngestionStatus Status { get; }
 
+    /// <summary>Persisted record when one was admitted, otherwise <see langword="null"/>.</summary>
     public WebhookRecord? Record { get; }
 
+    /// <summary>Verified context when payload processing was admitted, otherwise <see langword="null"/>.</summary>
     public WebhookContext? Context { get; }
 
+    /// <summary>Dispatch result when processing ran, otherwise <see langword="null"/>.</summary>
     public WebhookDispatchResult? DispatchResult { get; }
 
+    /// <summary>Safe classification of a failure.</summary>
     public WebhookDispatchFailureKind FailureKind { get; }
 
+    /// <summary>Stable safe failure code, when applicable.</summary>
     public string? FailureCode { get; }
 
+    /// <summary>Safe failure reason, when applicable; never contains secrets or raw payload data.</summary>
     public string? FailureReason { get; }
 
     internal Exception? Exception { get; }
 
+    /// <summary>Returns a compact status and safe failure code.</summary>
+    /// <returns>A diagnostic string without exception details.</returns>
     public override string ToString()
     {
         return FailureCode is null
@@ -164,6 +192,7 @@ public sealed class WebhookIngestionResult
     }
 }
 
+/// <summary>Coordinates verification, metadata extraction, deduplication, and dispatch.</summary>
 public sealed class WebhookIngestionService
 {
     private readonly IWebhookSignatureVerifier _signatureVerifier;
@@ -180,6 +209,20 @@ public sealed class WebhookIngestionService
     private readonly IWebhookRetryExecutor _retryExecutor;
     private readonly ILogger<WebhookIngestionService> _logger;
 
+    /// <summary>Creates the ingestion pipeline with its verification, storage, and dispatch dependencies.</summary>
+    /// <param name="signatureVerifier">Authenticates the exact request bytes.</param>
+    /// <param name="timestampVerifier">Validates replay freshness.</param>
+    /// <param name="eventIdExtractor">Extracts the provider event identifier.</param>
+    /// <param name="eventTypeExtractor">Extracts the provider event type.</param>
+    /// <param name="deduplicator">Atomically claims the provider-scoped delivery.</param>
+    /// <param name="keyFactory">Creates the deduplication key.</param>
+    /// <param name="deserializer">Deserializes admitted payloads.</param>
+    /// <param name="store">Persists records and processing leases.</param>
+    /// <param name="clock">Supplies deterministic timestamps.</param>
+    /// <param name="options">Current WebhookKit options.</param>
+    /// <param name="processor">Dispatches verified contexts.</param>
+    /// <param name="logger">Optional logger; a null logger uses a no-op logger.</param>
+    /// <param name="retryExecutor">Optional retry executor; a default executor is created when omitted.</param>
     public WebhookIngestionService(
         IWebhookSignatureVerifier signatureVerifier,
         IWebhookTimestampVerifier timestampVerifier,
@@ -210,6 +253,11 @@ public sealed class WebhookIngestionService
         _logger = logger ?? NullLogger<WebhookIngestionService>.Instance;
     }
 
+    /// <summary>Verifies, extracts, deduplicates, and admits a delivery for asynchronous processing.</summary>
+    /// <param name="request">Ingress metadata and exact request bytes.</param>
+    /// <param name="cancellationToken">Token used to cancel admission.</param>
+    /// <returns>An accepted, duplicate, rejected, or failed result.</returns>
+    /// <exception cref="WebhookConfigurationException">Asynchronous admission is configured without raw-body persistence.</exception>
     public Task<WebhookIngestionResult> AdmitAsync(
         WebhookIngestionRequest request,
         CancellationToken cancellationToken = default)
@@ -223,6 +271,10 @@ public sealed class WebhookIngestionService
         return AdmitWithActivityAsync(request, cancellationToken);
     }
 
+    /// <summary>Compatibility alias for <see cref="AdmitAsync"/>.</summary>
+    /// <param name="request">Ingress metadata and exact request bytes.</param>
+    /// <param name="cancellationToken">Token used to cancel admission.</param>
+    /// <returns>The asynchronous admission result.</returns>
     public Task<WebhookIngestionResult> IngestForAsyncAsync(
         WebhookIngestionRequest request,
         CancellationToken cancellationToken = default)
@@ -230,6 +282,10 @@ public sealed class WebhookIngestionService
         return AdmitAsync(request, cancellationToken);
     }
 
+    /// <summary>Runs synchronous verification, deduplication, and handler dispatch.</summary>
+    /// <param name="request">Ingress metadata and exact request bytes.</param>
+    /// <param name="cancellationToken">Token used to cancel verification, storage, retries, and handlers.</param>
+    /// <returns>A processed, ignored, duplicate, rejected, or failed result.</returns>
     public async Task<WebhookIngestionResult> IngestAsync(
         WebhookIngestionRequest request,
         CancellationToken cancellationToken = default)

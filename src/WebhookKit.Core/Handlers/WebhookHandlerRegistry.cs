@@ -2,11 +2,14 @@ using WebhookKit.Core.Options;
 
 namespace WebhookKit.Core.Handlers;
 
+/// <summary>Immutable event-type to handler registration snapshot.</summary>
 public sealed class WebhookHandlerRegistry
 {
     private static readonly IReadOnlyList<WebhookHandlerDescriptor> Empty = Array.Empty<WebhookHandlerDescriptor>();
     private readonly Dictionary<string, IReadOnlyList<WebhookHandlerDescriptor>> _descriptors;
 
+    /// <summary>Creates a registry from a sequence of handler descriptors.</summary>
+    /// <param name="descriptors">Descriptors to group by event type; the sequence is snapshotted.</param>
     public WebhookHandlerRegistry(IEnumerable<WebhookHandlerDescriptor> descriptors)
     {
         ArgumentNullException.ThrowIfNull(descriptors);
@@ -37,6 +40,9 @@ public sealed class WebhookHandlerRegistry
         _descriptors = snapshot;
     }
 
+    /// <summary>Gets handlers registered for an event type in registration order.</summary>
+    /// <param name="eventType">The provider event type.</param>
+    /// <returns>A read-only list, empty when no handler is registered.</returns>
     public IReadOnlyList<WebhookHandlerDescriptor> GetHandlers(string eventType)
     {
         ArgumentNullException.ThrowIfNull(eventType);

@@ -13,6 +13,7 @@ using WebhookKit.Core.Retries;
 
 namespace WebhookKit.Core.Workers;
 
+/// <summary>Consumes queued delivery references, recovers persisted work, and manages processing leases.</summary>
 public sealed class WebhookBackgroundWorker : BackgroundService
 {
     private const string HandlerFailureCode = "handler-failed";
@@ -33,6 +34,14 @@ public sealed class WebhookBackgroundWorker : BackgroundService
     private int _maxScheduledItems = int.MaxValue;
     private int _externalQueueCompletionStarted;
 
+    /// <summary>Creates a background worker with queue, store-scope, retry, and clock dependencies.</summary>
+    /// <param name="queue">Queue supplying delivery references.</param>
+    /// <param name="scopeFactory">Factory used to create a DI scope for each delivery.</param>
+    /// <param name="options">Current WebhookKit options.</param>
+    /// <param name="clock">Clock used for lease and status timestamps.</param>
+    /// <param name="logger">Optional logger; a null logger uses a no-op logger.</param>
+    /// <param name="timeProvider">Optional timer provider for deterministic recovery tests.</param>
+    /// <param name="retryExecutor">Optional retry executor; a default executor is created when omitted.</param>
     public WebhookBackgroundWorker(
         IWebhookQueue queue,
         IServiceScopeFactory scopeFactory,
@@ -51,6 +60,9 @@ public sealed class WebhookBackgroundWorker : BackgroundService
         _retryExecutor = retryExecutor ?? new WebhookRetryExecutor(new WebhookRetryPolicy(), new TaskWebhookRetryDelay());
     }
 
+    /// <summary>Runs the queue reader, recovery loop, and configured processor tasks until shutdown.</summary>
+    /// <param name="stoppingToken">Token supplied by the host when background processing should stop.</param>
+    /// <returns>A task that completes after queue completion and processor shutdown.</returns>
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var settings = _options.Value;

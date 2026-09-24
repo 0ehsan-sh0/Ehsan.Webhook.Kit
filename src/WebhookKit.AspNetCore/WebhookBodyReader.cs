@@ -13,6 +13,13 @@ public sealed class WebhookBodyReader : IWebhookBodyReader
 {
     private const int BufferSize = 81920; // 80 KB chunk buffer
 
+    /// <summary>Reads and buffers the exact request body while enforcing the size limit.</summary>
+    /// <param name="context">The current HTTP request context; its body is rewound after reading.</param>
+    /// <param name="maxSizeBytes">Maximum accepted body size; must be non-negative.</param>
+    /// <param name="cancellationToken">Token used to cancel stream reads.</param>
+    /// <returns>A newly owned byte array containing the exact body.</returns>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="maxSizeBytes"/> is negative.</exception>
+    /// <exception cref="WebhookPayloadTooLargeException">The declared or observed body exceeds the limit.</exception>
     public async ValueTask<byte[]> ReadRawBodyAsync(
         HttpContext context,
         long maxSizeBytes,

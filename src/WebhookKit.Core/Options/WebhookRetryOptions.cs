@@ -16,5 +16,6 @@ public sealed class WebhookRetryOptions
     /// <summary>Apply jitter to avoid synchronized retries. Default true.</summary>
     public bool UseJitter { get; set; } = true;
 
+    /// <summary>Maximum fractional increase applied by jitter, from zero through one.</summary>
     public double JitterRatio { get; set; } = 0.2;
 }

@@ -8,15 +8,23 @@ using WebhookKit.AspNetCore.Pipeline;
 
 namespace WebhookKit.AspNetCore.Responses;
 
+/// <summary>Writes safe success statuses and problem JSON for endpoint results.</summary>
 public sealed class WebhookResponseWriter
 {
     private readonly IWebhookResponseFormatter _formatter;
 
+    /// <summary>Creates a response writer using the supplied formatter.</summary>
+    /// <param name="formatter">Formatter that maps failures to safe problem details.</param>
     public WebhookResponseWriter(IWebhookResponseFormatter formatter)
     {
         _formatter = formatter ?? throw new ArgumentNullException(nameof(formatter));
     }
 
+    /// <summary>Writes the result to the current HTTP response.</summary>
+    /// <param name="context">The current HTTP context.</param>
+    /// <param name="result">The safe endpoint result.</param>
+    /// <param name="cancellationToken">Token used to cancel response writes.</param>
+    /// <returns>A task that completes after the response body is written.</returns>
     public async Task WriteAsync(
         HttpContext context,
         WebhookEndpointResult result,

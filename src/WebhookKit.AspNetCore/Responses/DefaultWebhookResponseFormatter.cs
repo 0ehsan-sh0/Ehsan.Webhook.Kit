@@ -2,8 +2,13 @@ using WebhookKit.Abstractions;
 
 namespace WebhookKit.AspNetCore.Responses;
 
+/// <summary>Default formatter that maps outcomes to safe problem details.</summary>
 public sealed class DefaultWebhookResponseFormatter : IWebhookResponseFormatter
 {
+    /// <summary>Maps an endpoint outcome to a stable code and safe message.</summary>
+    /// <param name="outcome">The endpoint outcome.</param>
+    /// <param name="traceId">Optional trace identifier.</param>
+    /// <returns>Safe problem details without request secrets or raw data.</returns>
     public WebhookResponseProblem Format(WebhookEndpointOutcome outcome, string? traceId = null)
     {
         var (code, message) = outcome switch

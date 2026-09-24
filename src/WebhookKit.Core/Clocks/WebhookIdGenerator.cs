@@ -3,16 +3,21 @@ using WebhookKit.Abstractions;
 
 namespace WebhookKit.Core.Clocks;
 
+/// <summary>Generates cryptographically random, time-ordered ULID identifiers.</summary>
 public sealed class WebhookIdGenerator : IWebhookIdGenerator
 {
     private const string Alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
     private readonly IWebhookClock _clock;
 
+    /// <summary>Creates a generator using the supplied clock for its timestamp component.</summary>
+    /// <param name="clock">The clock used for the time component.</param>
     public WebhookIdGenerator(IWebhookClock clock)
     {
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
     }
 
+    /// <summary>Creates a new identifier for one HTTP transmission.</summary>
+    /// <returns>A canonical 26-character ULID string.</returns>
     public string Create()
     {
         var unixMilliseconds = _clock.UtcNow.ToUnixTimeMilliseconds();

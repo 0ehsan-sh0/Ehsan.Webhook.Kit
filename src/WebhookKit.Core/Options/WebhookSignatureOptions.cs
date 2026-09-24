@@ -7,16 +7,20 @@ public sealed class WebhookSignatureOptions
     /// <summary>Header carrying the signature. When set, verification is enabled and secrets are required.</summary>
     public string? HeaderName { get; set; }
 
+    /// <summary>Input construction mode for the signature.</summary>
     public WebhookSignatureInput Input { get; set; } = WebhookSignatureInput.RawBody;
 
+    /// <summary>Compatibility alias for <see cref="Input"/>.</summary>
     public WebhookSignatureInput SigningInput
     {
         get => Input;
         set => Input = value;
     }
 
+    /// <summary>Separator placed between a timestamp and the body for timestamp-prefixed signatures.</summary>
     public string TimestampSeparator { get; set; } = ".";
 
+    /// <summary>Compatibility alias for <see cref="TimestampSeparator"/>.</summary>
     public string Separator
     {
         get => TimestampSeparator;

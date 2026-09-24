@@ -86,12 +86,22 @@ public static class WebhookKitServiceCollectionExtensions
         return services;
     }
 
+    /// <summary>Registers a strongly typed handler for an event type.</summary>
+    /// <typeparam name="THandler">Concrete handler type resolved from scoped DI.</typeparam>
+    /// <param name="services">The service collection to configure.</param>
+    /// <param name="eventType">Provider event type routed to the handler.</param>
+    /// <returns>The same service collection for fluent registration.</returns>
     public static IServiceCollection AddWebhookHandler<THandler>(this IServiceCollection services, string eventType)
         where THandler : class
     {
         return AddWebhookHandler(services, typeof(THandler), eventType);
     }
 
+    /// <summary>Registers a strongly typed handler type for an event type.</summary>
+    /// <param name="services">The service collection to configure.</param>
+    /// <param name="implementationType">Concrete closed handler type.</param>
+    /// <param name="eventType">Provider event type routed to the handler.</param>
+    /// <returns>The same service collection for fluent registration.</returns>
     public static IServiceCollection AddWebhookHandler(
         this IServiceCollection services,
         Type implementationType,

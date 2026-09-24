@@ -2,13 +2,23 @@ using WebhookKit.Core.Options;
 
 namespace WebhookKit.Core.Retries;
 
+/// <summary>Abstraction for waiting between retry attempts.</summary>
 public interface IWebhookRetryDelay
 {
+    /// <summary>Waits for the requested delay.</summary>
+    /// <param name="delay">Time to wait; non-positive values complete immediately.</param>
+    /// <param name="cancellationToken">Token used to cancel the wait.</param>
+    /// <returns>A task representing the wait.</returns>
     Task DelayAsync(TimeSpan delay, CancellationToken cancellationToken = default);
 }
 
+/// <summary>Uses <see cref="Task.Delay(TimeSpan, CancellationToken)"/> for retry waits.</summary>
 public sealed class TaskWebhookRetryDelay : IWebhookRetryDelay
 {
+    /// <summary>Waits for the requested delay.</summary>
+    /// <param name="delay">Time to wait; non-positive values complete immediately.</param>
+    /// <param name="cancellationToken">Token used to cancel the wait.</param>
+    /// <returns>A task representing the wait.</returns>
     public Task DelayAsync(TimeSpan delay, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -18,15 +28,21 @@ public sealed class TaskWebhookRetryDelay : IWebhookRetryDelay
     }
 }
 
+/// <summary>Calculates exponential retry delays with optional jitter.</summary>
 public sealed class WebhookRetryPolicy
 {
     private readonly Func<double> _jitterFactorProvider;
 
+    /// <summary>Creates a retry policy.</summary>
+    /// <param name="jitterFactorProvider">Optional source of a value from zero through one; defaults to a shared random source.</param>
     public WebhookRetryPolicy(Func<double>? jitterFactorProvider = null)
     {
         _jitterFactorProvider = jitterFactorProvider ?? Random.Shared.NextDouble;
     }
 
+    /// <summary>Gets a validated jitter factor from zero through one.</summary>
+    /// <returns>The jitter factor.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">The supplied factor is not finite or is outside its range.</exception>
     public double GetJitterFactor()
     {
         var factor = _jitterFactorProvider();
@@ -38,6 +54,11 @@ public sealed class WebhookRetryPolicy
         return factor;
     }
 
+    /// <summary>Calculates the delay before the next retry.</summary>
+    /// <param name="failedAttempt">One-based number of the attempt that just failed.</param>
+    /// <param name="options">Validated retry settings.</param>
+    /// <param name="jitterFactor">Optional deterministic jitter factor for tests.</param>
+    /// <returns>The calculated delay, never negative.</returns>
     public TimeSpan CalculateDelay(int failedAttempt, WebhookRetryOptions options, double? jitterFactor = null)
     {
         ValidateOptions(options);
@@ -63,6 +84,9 @@ public sealed class WebhookRetryPolicy
         return ToTimeSpan(totalTicks);
     }
 
+    /// <summary>Calculates the maximum non-negative retry window for settings.</summary>
+    /// <param name="options">Retry settings to inspect.</param>
+    /// <returns>The maximum window, or <see cref="TimeSpan.Zero"/> when no retry is possible.</returns>
     public static TimeSpan GetMaximumRetryWindow(WebhookRetryOptions options)
     {
         ValidateOptions(options);
@@ -97,11 +121,18 @@ public sealed class WebhookRetryPolicy
         return ToTimeSpan(totalMilliseconds * TimeSpan.TicksPerMillisecond);
     }
 
+    /// <summary>Compatibility alias for <see cref="GetMaximumRetryWindow"/>.</summary>
+    /// <param name="options">Retry settings to inspect.</param>
+    /// <returns>The maximum retry window.</returns>
     public static TimeSpan CalculateMaximumRetryWindow(WebhookRetryOptions options)
     {
         return GetMaximumRetryWindow(options);
     }
 
+    /// <summary>Validates retry settings before calculation.</summary>
+    /// <param name="options">Settings to validate.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="options"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">A setting is outside its supported range.</exception>
     public static void ValidateOptions(WebhookRetryOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);

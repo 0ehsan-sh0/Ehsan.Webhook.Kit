@@ -16,11 +16,17 @@ public sealed class HmacSignatureVerifier : IWebhookSignatureVerifier
 {
     private readonly IOptions<WebhookKitOptions> _options;
 
+    /// <summary>Creates a verifier using the configured provider secrets and signature settings.</summary>
+    /// <param name="options">WebhookKit options containing provider signature configuration.</param>
     public HmacSignatureVerifier(IOptions<WebhookKitOptions> options)
     {
         _options = options ?? throw new ArgumentNullException(nameof(options));
     }
 
+    /// <summary>Verifies a provider signature using constant-time comparison.</summary>
+    /// <param name="context">Provider name, exact raw body, and request headers; the context contains no secret.</param>
+    /// <param name="cancellationToken">Token used to cancel verification.</param>
+    /// <returns>A result whose failure reason is safe for diagnostics and HTTP mapping.</returns>
     public ValueTask<WebhookVerificationResult> VerifyAsync(
         WebhookVerificationContext context,
         CancellationToken cancellationToken = default)

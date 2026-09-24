@@ -4,6 +4,8 @@ using WebhookKit.Abstractions;
 
 namespace WebhookKit.Core.Stores;
 
+/// <summary>Process-local thread-safe webhook store for development and single-process scenarios.</summary>
+/// <remarks>Records are copied on input and output; this store is not durable across process restarts.</remarks>
 public sealed class InMemoryWebhookStore : IWebhookStore
 {
     private readonly ConcurrentDictionary<string, WebhookRecord> _byDeduplicationKey = new(StringComparer.Ordinal);
@@ -12,12 +14,19 @@ public sealed class InMemoryWebhookStore : IWebhookStore
     private readonly IWebhookClock _clock;
     private readonly object _createGate = new();
 
+    /// <summary>Creates an in-memory store using the supplied clock.</summary>
+    /// <param name="clock">Clock used for lease timestamps.</param>
     public InMemoryWebhookStore(IWebhookClock clock)
     {
         ArgumentNullException.ThrowIfNull(clock);
         _clock = clock;
     }
 
+    /// <summary>Gets a detached record by provider and event ID.</summary>
+    /// <param name="provider">Provider name.</param>
+    /// <param name="eventId">Provider event ID.</param>
+    /// <param name="cancellationToken">Token used to cancel the lookup.</param>
+    /// <returns>A record copy, or <see langword="null"/> when absent.</returns>
     public ValueTask<WebhookRecord?> GetAsync(string provider, string eventId, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -25,6 +34,10 @@ public sealed class InMemoryWebhookStore : IWebhookStore
         return FindByDeduplicationKey(key);
     }
 
+    /// <summary>Atomically inserts a record if neither its ID nor deduplication key exists.</summary>
+    /// <param name="record">Record to copy into the store.</param>
+    /// <param name="cancellationToken">Token used to cancel insertion.</param>
+    /// <returns><see langword="true"/> when inserted; otherwise <see langword="false"/>.</returns>
     public ValueTask<bool> TryCreateAsync(WebhookRecord record, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -55,6 +68,10 @@ public sealed class InMemoryWebhookStore : IWebhookStore
         return ValueTask.FromResult(true);
     }
 
+    /// <summary>Updates a stored record when its identity and lease rules permit the transition.</summary>
+    /// <param name="record">Updated record snapshot.</param>
+    /// <param name="cancellationToken">Token used to cancel persistence.</param>
+    /// <returns>A task that completes when the update is applied or ignored.</returns>
     public ValueTask UpdateAsync(WebhookRecord record, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -81,6 +98,10 @@ public sealed class InMemoryWebhookStore : IWebhookStore
         return default;
     }
 
+    /// <summary>Gets a detached record by Webhook ID.</summary>
+    /// <param name="webhookId">Transmission identifier.</param>
+    /// <param name="cancellationToken">Token used to cancel the lookup.</param>
+    /// <returns>A record copy, or <see langword="null"/> when absent.</returns>
     public ValueTask<WebhookRecord?> GetByWebhookIdAsync(string webhookId, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -88,6 +109,12 @@ public sealed class InMemoryWebhookStore : IWebhookStore
         return FindById(id);
     }
 
+    /// <summary>Atomically claims a received or expired processing record.</summary>
+    /// <param name="webhookId">Transmission identifier.</param>
+    /// <param name="leaseOwner">Owner recorded for the lease.</param>
+    /// <param name="leaseDuration">Positive lease duration.</param>
+    /// <param name="cancellationToken">Token used to cancel the claim.</param>
+    /// <returns><see langword="true"/> when the lease was acquired.</returns>
     public ValueTask<bool> TryClaimAsync(string webhookId, string leaseOwner, TimeSpan leaseDuration, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -137,6 +164,11 @@ public sealed class InMemoryWebhookStore : IWebhookStore
         return ValueTask.FromResult(true);
     }
 
+    /// <summary>Releases an owned processing lease.</summary>
+    /// <param name="webhookId">Transmission identifier.</param>
+    /// <param name="leaseOwner">Current lease owner.</param>
+    /// <param name="cancellationToken">Token used to cancel release.</param>
+    /// <returns><see langword="true"/> when the owned lease was released.</returns>
     public ValueTask<bool> ReleaseAsync(string webhookId, string leaseOwner, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -171,6 +203,12 @@ public sealed class InMemoryWebhookStore : IWebhookStore
         return ValueTask.FromResult(true);
     }
 
+    /// <summary>Marks an owned processing record as processed.</summary>
+    /// <param name="webhookId">Transmission identifier.</param>
+    /// <param name="leaseOwner">Current lease owner.</param>
+    /// <param name="processedAt">Completion timestamp.</param>
+    /// <param name="cancellationToken">Token used to cancel persistence.</param>
+    /// <returns><see langword="true"/> when the transition was applied.</returns>
     public ValueTask<bool> MarkProcessedAsync(string webhookId, string leaseOwner, DateTimeOffset processedAt, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -205,6 +243,13 @@ public sealed class InMemoryWebhookStore : IWebhookStore
         return ValueTask.FromResult(true);
     }
 
+    /// <summary>Marks an owned processing record as failed with a normalized safe reason.</summary>
+    /// <param name="webhookId">Transmission identifier.</param>
+    /// <param name="leaseOwner">Current lease owner.</param>
+    /// <param name="failedAt">Failure timestamp.</param>
+    /// <param name="failureReason">Optional code-like reason; unsafe values are normalized.</param>
+    /// <param name="cancellationToken">Token used to cancel persistence.</param>
+    /// <returns><see langword="true"/> when the transition was applied.</returns>
     public ValueTask<bool> MarkFailedAsync(string webhookId, string leaseOwner, DateTimeOffset failedAt, string? failureReason, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -241,6 +286,12 @@ public sealed class InMemoryWebhookStore : IWebhookStore
         return ValueTask.FromResult(true);
     }
 
+    /// <summary>Gets received records and expired leases eligible for recovery.</summary>
+    /// <param name="now">Current time used for expiry checks.</param>
+    /// <param name="expiredLeaseAge">Minimum lease age before recovery.</param>
+    /// <param name="limit">Maximum records to return.</param>
+    /// <param name="cancellationToken">Token used to cancel recovery.</param>
+    /// <returns>Detached records ordered by receipt time and ID.</returns>
     public ValueTask<IReadOnlyList<WebhookRecord>> GetRecoverableAsync(DateTimeOffset now, TimeSpan expiredLeaseAge, int limit, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();

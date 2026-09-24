@@ -6,8 +6,13 @@ using WebhookKit.Abstractions;
 
 namespace WebhookKit.Redis;
 
+/// <summary>Registers the Redis-backed webhook store and its options.</summary>
 public static class RedisServiceCollectionExtensions
 {
+    /// <summary>Registers Redis storage using an existing connection multiplexer.</summary>
+    /// <param name="services">The service collection to configure.</param>
+    /// <param name="connectionMultiplexer">The application's Redis connection multiplexer.</param>
+    /// <returns>The same service collection for fluent registration.</returns>
     public static IServiceCollection AddWebhookKitRedis(
         this IServiceCollection services,
         IConnectionMultiplexer connectionMultiplexer)
@@ -15,6 +20,11 @@ public static class RedisServiceCollectionExtensions
         return AddWebhookKitRedis(services, connectionMultiplexer, null);
     }
 
+    /// <summary>Registers Redis storage using an existing connection multiplexer and options callback.</summary>
+    /// <param name="services">The service collection to configure.</param>
+    /// <param name="connectionMultiplexer">The application's Redis connection multiplexer.</param>
+    /// <param name="configure">Optional callback for key prefix and retention settings.</param>
+    /// <returns>The same service collection for fluent registration.</returns>
     public static IServiceCollection AddWebhookKitRedis(
         this IServiceCollection services,
         IConnectionMultiplexer connectionMultiplexer,
@@ -27,6 +37,10 @@ public static class RedisServiceCollectionExtensions
         return services;
     }
 
+    /// <summary>Registers Redis storage using a connection string.</summary>
+    /// <param name="services">The service collection to configure.</param>
+    /// <param name="connectionString">Redis connection string; connection creation is deferred until resolution.</param>
+    /// <returns>The same service collection for fluent registration.</returns>
     public static IServiceCollection AddWebhookKitRedis(
         this IServiceCollection services,
         string connectionString)
@@ -34,6 +48,11 @@ public static class RedisServiceCollectionExtensions
         return AddWebhookKitRedis(services, connectionString, null);
     }
 
+    /// <summary>Registers Redis storage using a connection string and options callback.</summary>
+    /// <param name="services">The service collection to configure.</param>
+    /// <param name="connectionString">Redis connection string; connection creation is deferred until resolution.</param>
+    /// <param name="configure">Optional callback for key prefix and retention settings.</param>
+    /// <returns>The same service collection for fluent registration.</returns>
     public static IServiceCollection AddWebhookKitRedis(
         this IServiceCollection services,
         string connectionString,
