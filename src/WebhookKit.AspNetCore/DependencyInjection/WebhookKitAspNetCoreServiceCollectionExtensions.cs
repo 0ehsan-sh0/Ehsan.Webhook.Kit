@@ -1,6 +1,8 @@
 // Copyright (c) Ehsan. Licensed under the MIT License.
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using WebhookKit.AspNetCore.Mvc;
 using WebhookKit.AspNetCore.Pipeline;
 
 namespace WebhookKit.AspNetCore.DependencyInjection;
@@ -26,6 +28,12 @@ public static class WebhookKitAspNetCoreServiceCollectionExtensions
         services.AddWebhookBodyReader();
         services.TryAddScoped<WebhookEndpointService>();
         services.TryAddScoped<IWebhookEndpointService>(sp => sp.GetRequiredService<WebhookEndpointService>());
+        services.TryAddScoped<WebhookEndpointFilter>();
+        services.Configure<MvcOptions>(options =>
+        {
+            options.Filters.Add<WebhookEndpointFilter>();
+            options.ModelBinderProviders.Insert(0, new WebhookContextModelBinderProvider());
+        });
         return services;
     }
 
