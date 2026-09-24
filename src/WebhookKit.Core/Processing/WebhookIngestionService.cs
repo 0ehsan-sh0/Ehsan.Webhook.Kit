@@ -25,6 +25,8 @@ public sealed class WebhookIngestionRequest
 {
     public required string WebhookId { get; init; }
 
+    public string? CorrelationId { get; init; }
+
     public required string Provider { get; init; }
 
     public required string HttpMethod { get; init; }
@@ -214,7 +216,7 @@ public sealed class WebhookIngestionService
             throw new WebhookConfigurationException("Asynchronous webhook admission requires raw body persistence.");
         }
 
-        return AdmitCoreAsync(request, cancellationToken);
+        return AdmitWithActivityAsync(request, cancellationToken);
     }
 
     public Task<WebhookIngestionResult> IngestForAsyncAsync(
@@ -228,107 +230,162 @@ public sealed class WebhookIngestionService
         WebhookIngestionRequest request,
         CancellationToken cancellationToken = default)
     {
-        var traceId = Activity.Current?.TraceId.ToString();
-        var admission = await AdmitCoreAsync(request, cancellationToken).ConfigureAwait(false);
-        if (admission.Status != WebhookIngestionStatus.Accepted)
-        {
-            return admission;
-        }
-
-        var record = admission.Record!;
-        var context = admission.Context!;
-        WebhookDispatchResult dispatchResult;
-        try
-        {
-            dispatchResult = await _processor
-                .DispatchAsync(context, cancellationToken)
-                .ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception exception)
-        {
-            WebhookLogMessages.Failed(
-                _logger,
-                record.Id,
-                record.Provider,
-                record.EventId,
-                record.EventType,
-                nameof(WebhookProcessingStatus.Failed),
-                record.AttemptCount,
-                traceId,
-                "handler-failed");
-            dispatchResult = WebhookDispatchResult.Failed(
-                WebhookDispatchFailureKind.Handler,
-                "handler-failed",
-                exception);
-        }
-
-        var ingestionStatus = dispatchResult.Status switch
-        {
-            WebhookDispatchStatus.Processed => WebhookIngestionStatus.Processed,
-            WebhookDispatchStatus.Ignored => WebhookIngestionStatus.Ignored,
-            _ => WebhookIngestionStatus.Failed
-        };
-
-        if (ingestionStatus == WebhookIngestionStatus.Processed)
-        {
-            record.Status = WebhookProcessingStatus.Processed;
-            record.ProcessedAt = _clock.UtcNow;
-            if (_options.Value.Storage.DiscardRawBodyAfterSuccessfulSync)
-            {
-                record.RawBody = null;
-            }
-        }
-        else if (ingestionStatus == WebhookIngestionStatus.Ignored)
-        {
-            record.Status = WebhookProcessingStatus.Ignored;
-            if (_options.Value.Storage.DiscardRawBodyAfterSuccessfulSync)
-            {
-                record.RawBody = null;
-            }
-        }
-        else
-        {
-            record.Status = WebhookProcessingStatus.Failed;
-            record.FailureReason = dispatchResult.FailureCode;
-            record.FailureCode = dispatchResult.FailureCode;
-            record.FailedAt = _clock.UtcNow;
-        }
+        ArgumentNullException.ThrowIfNull(request);
+        ValidateRequest(request);
+        cancellationToken.ThrowIfCancellationRequested();
+        var correlationId = ResolveCorrelationId(request.WebhookId, request.CorrelationId, Activity.Current?.TraceId.ToString());
+        using var activity = WebhookDiagnostics.StartReceive(request.WebhookId, request.Provider, correlationId);
 
         try
         {
-            await _store.UpdateAsync(record, cancellationToken).ConfigureAwait(false);
+            var traceId = Activity.Current?.TraceId.ToString();
+            var admission = await AdmitCoreAsync(request, correlationId, activity, cancellationToken).ConfigureAwait(false);
+            if (admission.Status != WebhookIngestionStatus.Accepted)
+            {
+                SetReceiveResult(activity, admission.Status);
+                return admission;
+            }
+
+            var record = admission.Record!;
+            correlationId = record.CorrelationId ?? correlationId;
+            var context = admission.Context!;
+            WebhookDispatchResult dispatchResult;
+            try
+            {
+                dispatchResult = await _processor
+                    .DispatchAsync(context, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception exception)
+            {
+                WebhookLogMessages.Failed(
+                    _logger,
+                    record.Id,
+                    record.Provider,
+                    record.EventId,
+                    record.EventType,
+                    nameof(WebhookProcessingStatus.Failed),
+                    record.AttemptCount,
+                    traceId,
+                    correlationId,
+                    "handler-failed");
+                dispatchResult = WebhookDispatchResult.Failed(
+                    WebhookDispatchFailureKind.Handler,
+                    "handler-failed",
+                    exception);
+            }
+
+            var ingestionStatus = dispatchResult.Status switch
+            {
+                WebhookDispatchStatus.Processed => WebhookIngestionStatus.Processed,
+                WebhookDispatchStatus.Ignored => WebhookIngestionStatus.Ignored,
+                _ => WebhookIngestionStatus.Failed
+            };
+
+            if (ingestionStatus == WebhookIngestionStatus.Processed)
+            {
+                record.Status = WebhookProcessingStatus.Processed;
+                record.ProcessedAt = _clock.UtcNow;
+                if (_options.Value.Storage.DiscardRawBodyAfterSuccessfulSync)
+                {
+                    record.RawBody = null;
+                }
+            }
+            else if (ingestionStatus == WebhookIngestionStatus.Ignored)
+            {
+                record.Status = WebhookProcessingStatus.Ignored;
+                if (_options.Value.Storage.DiscardRawBodyAfterSuccessfulSync)
+                {
+                    record.RawBody = null;
+                }
+            }
+            else
+            {
+                record.Status = WebhookProcessingStatus.Failed;
+                record.FailureReason = dispatchResult.FailureCode;
+                record.FailureCode = dispatchResult.FailureCode;
+                record.FailedAt = _clock.UtcNow;
+            }
+
+            try
+            {
+                await _store.UpdateAsync(record, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception exception)
+            {
+                WebhookLogMessages.Failed(
+                    _logger,
+                    record.Id,
+                    record.Provider,
+                    record.EventId,
+                    record.EventType,
+                    nameof(WebhookProcessingStatus.Failed),
+                    record.AttemptCount,
+                    traceId,
+                    correlationId,
+                    "status-update-failed");
+                SetReceiveResult(activity, WebhookIngestionStatus.Failed);
+                return WebhookIngestionResult.CreateFailure(
+                    WebhookDispatchFailureKind.Handler,
+                    "status-update-failed",
+                    exception);
+            }
+
+            SetReceiveResult(activity, ingestionStatus);
+            return WebhookIngestionResult.CreateDispatched(ingestionStatus, record, context, dispatchResult);
         }
         catch (OperationCanceledException)
         {
+            WebhookDiagnostics.SetResult(activity, "Cancelled", true);
             throw;
         }
-        catch (Exception exception)
+        catch (Exception)
         {
-            WebhookLogMessages.Failed(
-                _logger,
-                record.Id,
-                record.Provider,
-                record.EventId,
-                record.EventType,
-                nameof(WebhookProcessingStatus.Failed),
-                record.AttemptCount,
-                traceId,
-                "status-update-failed");
-            return WebhookIngestionResult.CreateFailure(
-                WebhookDispatchFailureKind.Handler,
-                "status-update-failed",
-                exception);
+            WebhookDiagnostics.SetResult(activity, nameof(WebhookProcessingStatus.Failed), true);
+            throw;
         }
+    }
 
-        return WebhookIngestionResult.CreateDispatched(ingestionStatus, record, context, dispatchResult);
+    private async Task<WebhookIngestionResult> AdmitWithActivityAsync(
+        WebhookIngestionRequest request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ValidateRequest(request);
+        cancellationToken.ThrowIfCancellationRequested();
+        var correlationId = ResolveCorrelationId(request.WebhookId, request.CorrelationId, Activity.Current?.TraceId.ToString());
+        using var activity = WebhookDiagnostics.StartReceive(request.WebhookId, request.Provider, correlationId);
+
+        try
+        {
+            var result = await AdmitCoreAsync(request, correlationId, activity, cancellationToken).ConfigureAwait(false);
+            SetReceiveResult(activity, result.Status);
+            return result;
+        }
+        catch (OperationCanceledException)
+        {
+            WebhookDiagnostics.SetResult(activity, "Cancelled", true);
+            throw;
+        }
+        catch (Exception)
+        {
+            WebhookDiagnostics.SetResult(activity, nameof(WebhookProcessingStatus.Failed), true);
+            throw;
+        }
     }
 
     private async Task<WebhookIngestionResult> AdmitCoreAsync(
         WebhookIngestionRequest request,
+        string correlationId,
+        Activity? activity,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -344,7 +401,8 @@ public sealed class WebhookIngestionService
             null,
             nameof(WebhookProcessingStatus.Received),
             0,
-            traceId);
+            traceId,
+            correlationId);
 
         var rawBody = request.RawBody.ToArray();
         var headers = CopyHeaders(request.Headers);
@@ -377,6 +435,7 @@ public sealed class WebhookIngestionService
                 nameof(WebhookProcessingStatus.Failed),
                 0,
                 traceId,
+                correlationId,
                 "signature-verification-failed");
             return WebhookIngestionResult.CreateFailure(
                 WebhookDispatchFailureKind.Handler,
@@ -395,6 +454,7 @@ public sealed class WebhookIngestionService
                 "Rejected",
                 0,
                 traceId,
+                correlationId,
                 "signature-verification-failed");
             return WebhookIngestionResult.CreateRejected(
                 "signature-verification-failed",
@@ -423,6 +483,7 @@ public sealed class WebhookIngestionService
                 nameof(WebhookProcessingStatus.Failed),
                 0,
                 traceId,
+                correlationId,
                 "timestamp-verification-failed");
             return WebhookIngestionResult.CreateFailure(
                 WebhookDispatchFailureKind.Handler,
@@ -441,6 +502,7 @@ public sealed class WebhookIngestionService
                 "Rejected",
                 0,
                 traceId,
+                correlationId,
                 "timestamp-verification-failed");
             return WebhookIngestionResult.CreateRejected(
                 "timestamp-verification-failed",
@@ -455,7 +517,8 @@ public sealed class WebhookIngestionService
             null,
             "Verified",
             0,
-            traceId);
+            traceId,
+            correlationId);
 
         string? eventId;
         try
@@ -480,12 +543,23 @@ public sealed class WebhookIngestionService
                 nameof(WebhookProcessingStatus.Failed),
                 0,
                 traceId,
+                correlationId,
                 "event-id-extraction-failed");
             return WebhookIngestionResult.CreateFailure(
                 WebhookDispatchFailureKind.Payload,
                 "event-id-extraction-failed",
                 exception);
         }
+
+        correlationId = EnsureDistinctCorrelationId(correlationId, request.WebhookId, eventId);
+        WebhookDiagnostics.SetTags(
+            activity,
+            request.WebhookId,
+            request.Provider,
+            eventId,
+            null,
+            "Verified",
+            correlationId);
 
         string? eventType;
         try
@@ -510,12 +584,22 @@ public sealed class WebhookIngestionService
                 nameof(WebhookProcessingStatus.Failed),
                 0,
                 traceId,
+                correlationId,
                 "event-type-extraction-failed");
             return WebhookIngestionResult.CreateFailure(
                 WebhookDispatchFailureKind.Payload,
                 "event-type-extraction-failed",
                 exception);
         }
+
+        WebhookDiagnostics.SetTags(
+            activity,
+            request.WebhookId,
+            request.Provider,
+            eventId,
+            eventType,
+            "Verified",
+            correlationId);
 
         if (eventType is null)
         {
@@ -528,6 +612,7 @@ public sealed class WebhookIngestionService
                 nameof(WebhookProcessingStatus.Failed),
                 0,
                 traceId,
+                correlationId,
                 "missing-event-type");
             return WebhookIngestionResult.CreateFailure(
                 WebhookDispatchFailureKind.Payload,
@@ -545,6 +630,7 @@ public sealed class WebhookIngestionService
                 nameof(WebhookProcessingStatus.Failed),
                 0,
                 traceId,
+                correlationId,
                 "provider-not-configured");
             return WebhookIngestionResult.CreateFailure(
                 WebhookDispatchFailureKind.Handler,
@@ -572,6 +658,7 @@ public sealed class WebhookIngestionService
                 nameof(WebhookProcessingStatus.Failed),
                 0,
                 traceId,
+                correlationId,
                 failureCode);
             return WebhookIngestionResult.CreateFailure(
                 WebhookDispatchFailureKind.Payload,
@@ -582,6 +669,7 @@ public sealed class WebhookIngestionService
         var record = new WebhookRecord
         {
             Id = request.WebhookId,
+            CorrelationId = correlationId,
             Provider = request.Provider,
             EventId = eventId,
             EventType = eventType,
@@ -618,6 +706,7 @@ public sealed class WebhookIngestionService
                 nameof(WebhookProcessingStatus.Failed),
                 0,
                 traceId,
+                correlationId,
                 "deduplication-failed");
             return WebhookIngestionResult.CreateFailure(
                 WebhookDispatchFailureKind.Handler,
@@ -635,13 +724,15 @@ public sealed class WebhookIngestionService
                 eventType,
                 nameof(WebhookProcessingStatus.Duplicate),
                 0,
-                traceId);
+                traceId,
+                correlationId);
             return WebhookIngestionResult.CreateDuplicate();
         }
 
         var context = new WebhookContext(rawBody, _deserializer)
         {
             WebhookId = record.Id,
+            CorrelationId = record.CorrelationId,
             Provider = record.Provider,
             EventId = record.EventId,
             EventType = record.EventType,
@@ -650,6 +741,60 @@ public sealed class WebhookIngestionService
         };
 
         return WebhookIngestionResult.CreateAccepted(record, context);
+    }
+
+    private static void SetReceiveResult(Activity? activity, WebhookIngestionStatus status)
+    {
+        var statusText = status switch
+        {
+            WebhookIngestionStatus.Processed => nameof(WebhookProcessingStatus.Processed),
+            WebhookIngestionStatus.Ignored => nameof(WebhookProcessingStatus.Ignored),
+            WebhookIngestionStatus.Duplicate => nameof(WebhookProcessingStatus.Duplicate),
+            WebhookIngestionStatus.Rejected => nameof(WebhookIngestionStatus.Rejected),
+            WebhookIngestionStatus.Accepted => nameof(WebhookIngestionStatus.Accepted),
+            _ => nameof(WebhookProcessingStatus.Failed)
+        };
+        WebhookDiagnostics.SetResult(
+            activity,
+            statusText,
+            status is WebhookIngestionStatus.Rejected or WebhookIngestionStatus.Failed);
+    }
+
+    private static string ResolveCorrelationId(
+        string webhookId,
+        string? suppliedCorrelationId,
+        string? ambientCorrelationId)
+    {
+        var correlationId = string.IsNullOrWhiteSpace(suppliedCorrelationId)
+            ? ambientCorrelationId
+            : suppliedCorrelationId;
+        correlationId = string.IsNullOrWhiteSpace(correlationId)
+            ? null
+            : correlationId.Trim();
+        return EnsureDistinctCorrelationId(correlationId, webhookId, null);
+    }
+
+    private static string EnsureDistinctCorrelationId(
+        string? correlationId,
+        string webhookId,
+        string? eventId)
+    {
+        if (!string.IsNullOrWhiteSpace(correlationId) &&
+            !string.Equals(correlationId, webhookId, StringComparison.Ordinal) &&
+            !string.Equals(correlationId, eventId, StringComparison.Ordinal))
+        {
+            return correlationId;
+        }
+
+        string generated;
+        do
+        {
+            generated = WebhookDiagnostics.CreateCorrelationId();
+        }
+        while (string.Equals(generated, webhookId, StringComparison.Ordinal) ||
+               string.Equals(generated, eventId, StringComparison.Ordinal));
+
+        return generated;
     }
 
     private static void ValidateRequest(WebhookIngestionRequest request)

@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -154,6 +155,7 @@ public sealed class WebhookEndpointService : IWebhookEndpointService
         var request = new WebhookIngestionRequest
         {
             WebhookId = webhookId,
+            CorrelationId = GetCorrelationId(context),
             Provider = options.ProviderName,
             HttpMethod = string.IsNullOrWhiteSpace(context.Request.Method) ? HttpMethods.Post : context.Request.Method,
             RequestPath = context.Request.Path.Value ?? context.Request.PathBase.Value ?? "/",
@@ -472,6 +474,7 @@ public sealed class WebhookEndpointService : IWebhookEndpointService
         var logWebhookId = webhookContext?.WebhookId ?? webhookId;
         var logEventId = webhookContext?.EventId;
         var logEventType = webhookContext?.EventType;
+        var logCorrelationId = webhookContext?.CorrelationId ?? GetCorrelationId(context);
         var logOutcome = result.Outcome.ToString();
         var logMode = options.Mode.ToString();
         var logFailureCode = result.IsSuccess ? null : result.Code;
@@ -491,6 +494,7 @@ public sealed class WebhookEndpointService : IWebhookEndpointService
                     logOutcome,
                     logMode,
                     result.TraceId,
+                    logCorrelationId,
                     logFailureCode);
                 break;
             case WebhookEndpointOutcome.InvalidSignature:
@@ -510,6 +514,7 @@ public sealed class WebhookEndpointService : IWebhookEndpointService
                     logOutcome,
                     logMode,
                     result.TraceId,
+                    logCorrelationId,
                     logFailureCode);
                 break;
             default:
@@ -523,12 +528,24 @@ public sealed class WebhookEndpointService : IWebhookEndpointService
                     logOutcome,
                     logMode,
                     result.TraceId,
+                    logCorrelationId,
                     logFailureCode);
                 break;
         }
 
         await _responseWriter.WriteAsync(context, result, cancellationToken).ConfigureAwait(false);
         return result;
+    }
+
+    private static string? GetCorrelationId(HttpContext context)
+    {
+        var traceId = Activity.Current?.TraceId.ToString();
+        if (!string.IsNullOrWhiteSpace(traceId))
+        {
+            return traceId;
+        }
+
+        return string.IsNullOrWhiteSpace(context.TraceIdentifier) ? null : context.TraceIdentifier;
     }
 
     private static ReadOnlyDictionary<string, string[]> SnapshotHeaders(IHeaderDictionary headers)

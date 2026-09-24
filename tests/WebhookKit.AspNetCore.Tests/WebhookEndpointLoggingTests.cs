@@ -68,9 +68,9 @@ public sealed class WebhookEndpointLoggingTests
         entry.Level.Should().Be(expectedLevel);
         entry.Template.Should().Be(expectedLevel switch
         {
-            LogLevel.Information => "Webhook endpoint completed. Provider={Provider} WebhookId={WebhookId} EventId={EventId} EventType={EventType} Status={Status} Outcome={Outcome} Mode={Mode} TraceId={TraceId} FailureCode={FailureCode}",
-            LogLevel.Warning => "Webhook endpoint rejected. Provider={Provider} WebhookId={WebhookId} EventId={EventId} EventType={EventType} Status={Status} Outcome={Outcome} Mode={Mode} TraceId={TraceId} FailureCode={FailureCode}",
-            _ => "Webhook endpoint failed. Provider={Provider} WebhookId={WebhookId} EventId={EventId} EventType={EventType} Status={Status} Outcome={Outcome} Mode={Mode} TraceId={TraceId} FailureCode={FailureCode}"
+            LogLevel.Information => "Webhook endpoint completed. Provider={Provider} WebhookId={WebhookId} EventId={EventId} EventType={EventType} Status={Status} Outcome={Outcome} Mode={Mode} TraceId={TraceId} CorrelationId={CorrelationId} FailureCode={FailureCode}",
+            LogLevel.Warning => "Webhook endpoint rejected. Provider={Provider} WebhookId={WebhookId} EventId={EventId} EventType={EventType} Status={Status} Outcome={Outcome} Mode={Mode} TraceId={TraceId} CorrelationId={CorrelationId} FailureCode={FailureCode}",
+            _ => "Webhook endpoint failed. Provider={Provider} WebhookId={WebhookId} EventId={EventId} EventType={EventType} Status={Status} Outcome={Outcome} Mode={Mode} TraceId={TraceId} CorrelationId={CorrelationId} FailureCode={FailureCode}"
         });
         entry.Get("Provider").Should().Be(scenario == "configuration-error" ? "unknown-endpoint-provider" : ProviderName);
         entry.Get("WebhookId").Should().Be(hasWebhookId ? FixedWebhookId : null);
@@ -78,6 +78,7 @@ public sealed class WebhookEndpointLoggingTests
         entry.Get("Outcome").Should().Be(expectedOutcome.ToString());
         entry.Get("Mode").Should().Be(expectedMode);
         entry.Get("TraceId").Should().Be("endpoint-host-trace");
+        entry.Get("CorrelationId").Should().Be("endpoint-host-trace");
         entry.Get("FailureCode").Should().Be(expectedFailureCode);
         entry.Exception.Should().BeNull();
         AssertSafe(entry);
@@ -148,6 +149,7 @@ public sealed class WebhookEndpointLoggingTests
 
             var entry = EndpointEntries(logs).Single();
             entry.Get("TraceId").Should().Be(activity.TraceId.ToString());
+            entry.Get("CorrelationId").Should().Be(activity.TraceId.ToString());
             entry.Get("TraceId").Should().NotBe(FixedWebhookId);
         }
         finally
@@ -173,6 +175,7 @@ public sealed class WebhookEndpointLoggingTests
 
             var entry = EndpointEntries(logs).Single();
             entry.Get("TraceId").Should().Be("host-trace-value");
+            entry.Get("CorrelationId").Should().Be("host-trace-value");
             entry.Get("TraceId").Should().NotBe(FixedWebhookId);
         }
         finally
@@ -199,6 +202,35 @@ public sealed class WebhookEndpointLoggingTests
             var entry = EndpointEntries(logs).Single();
             entry.Get("TraceId").Should().BeNull();
             entry.Get("TraceId").Should().NotBe(FixedWebhookId);
+        }
+        finally
+        {
+            Activity.Current = previousActivity;
+        }
+    }
+
+    [Fact]
+    public async Task ProcessAsync_GeneratesCorrelationWhenActivityAndHostTraceAreEmpty()
+    {
+        var logs = new CapturingLoggerProvider();
+        using var provider = BuildProvider(logs);
+        using var scope = provider.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<IWebhookEndpointService>();
+        var previousActivity = Activity.Current;
+        Activity.Current = null;
+        var context = CreateRequest("evt-generated-correlation-logging", "known.event", traceIdentifier: string.Empty);
+
+        try
+        {
+            var result = await service.ProcessAsync(context, CreateOptions());
+
+            result.Outcome.Should().Be(WebhookEndpointOutcome.Processed);
+            var entry = EndpointEntries(logs).Single();
+            var correlationId = result.Context!.CorrelationId;
+            correlationId.Should().NotBeNullOrWhiteSpace();
+            Guid.TryParse(correlationId, out _).Should().BeTrue();
+            correlationId.Should().NotBe(FixedWebhookId);
+            entry.Get("CorrelationId").Should().Be(correlationId);
         }
         finally
         {

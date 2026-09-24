@@ -60,10 +60,10 @@ public sealed class WebhookLoggingTests
                 LogLevel.Debug,
                 LogLevel.Information);
             entries.Select(entry => entry.Template).Should().Equal(
-                "Webhook received. WebhookId={WebhookId} Provider={Provider} EventId={EventId} EventType={EventType} Status={Status} Attempt={Attempt} TraceId={TraceId}",
-                "Webhook verified. WebhookId={WebhookId} Provider={Provider} EventId={EventId} EventType={EventType} Status={Status} Attempt={Attempt} TraceId={TraceId}",
-                "Webhook processing. WebhookId={WebhookId} Provider={Provider} EventId={EventId} EventType={EventType} Status={Status} Attempt={Attempt} TraceId={TraceId}",
-                "Webhook processed. WebhookId={WebhookId} Provider={Provider} EventId={EventId} EventType={EventType} Status={Status} Attempt={Attempt} TraceId={TraceId}");
+                "Webhook received. WebhookId={WebhookId} Provider={Provider} EventId={EventId} EventType={EventType} Status={Status} Attempt={Attempt} TraceId={TraceId} CorrelationId={CorrelationId}",
+                "Webhook verified. WebhookId={WebhookId} Provider={Provider} EventId={EventId} EventType={EventType} Status={Status} Attempt={Attempt} TraceId={TraceId} CorrelationId={CorrelationId}",
+                "Webhook processing. WebhookId={WebhookId} Provider={Provider} EventId={EventId} EventType={EventType} Status={Status} Attempt={Attempt} TraceId={TraceId} CorrelationId={CorrelationId}",
+                "Webhook processed. WebhookId={WebhookId} Provider={Provider} EventId={EventId} EventType={EventType} Status={Status} Attempt={Attempt} TraceId={TraceId} CorrelationId={CorrelationId}");
             AssertFields(entries[0], "webhook-logging-success", null, null, "Received", activity.TraceId.ToString(), null);
             AssertFields(entries[1], "webhook-logging-success", null, null, "Verified", activity.TraceId.ToString(), null);
             AssertFields(entries[2], "webhook-logging-success", "evt-logging", "event.type", "Processing", activity.TraceId.ToString(), null);
@@ -101,7 +101,7 @@ public sealed class WebhookLoggingTests
             var entries = CoreEntries(logs);
             entries.Select(entry => entry.EventId.Id).Should().Equal(ReceivedEventId, RejectedEventId);
             entries[1].Level.Should().Be(LogLevel.Warning);
-            entries[1].Template.Should().Be("Webhook rejected. WebhookId={WebhookId} Provider={Provider} EventId={EventId} EventType={EventType} Status={Status} Attempt={Attempt} TraceId={TraceId} FailureCode={FailureCode}");
+            entries[1].Template.Should().Be("Webhook rejected. WebhookId={WebhookId} Provider={Provider} EventId={EventId} EventType={EventType} Status={Status} Attempt={Attempt} TraceId={TraceId} CorrelationId={CorrelationId} FailureCode={FailureCode}");
             AssertFields(entries[1], "webhook-logging-rejected", null, null, "Rejected", activity.TraceId.ToString(), "signature-verification-failed");
             entries[1].Has("FailureReason").Should().BeFalse();
             entries.Should().OnlyContain(entry => entry.Exception == null);
@@ -149,7 +149,7 @@ public sealed class WebhookLoggingTests
         var ignored = CoreEntries(logs).Single(entry => entry.EventId.Id == IgnoredEventId);
         AssertFields(ignored, "webhook-logging-ignored", "evt-logging", "unregistered.event", "Ignored", null, null);
         ignored.Level.Should().Be(LogLevel.Information);
-        ignored.Template.Should().Be("Webhook ignored. WebhookId={WebhookId} Provider={Provider} EventId={EventId} EventType={EventType} Status={Status} Attempt={Attempt} TraceId={TraceId}");
+        ignored.Template.Should().Be("Webhook ignored. WebhookId={WebhookId} Provider={Provider} EventId={EventId} EventType={EventType} Status={Status} Attempt={Attempt} TraceId={TraceId} CorrelationId={CorrelationId}");
         AssertSafe(CoreEntries(logs), BodySecret, HeaderSecret, SignatureSecret, VerifierReasonSecret, ParserSecret, HandlerSecret);
     }
 
@@ -167,7 +167,7 @@ public sealed class WebhookLoggingTests
         var failed = CoreEntries(logs).Single(entry => entry.EventId.Id == FailedEventId);
         AssertFields(failed, "webhook-logging-failed", "evt-logging", "event.type", "Failed", null, "handler-failed");
         failed.Level.Should().Be(LogLevel.Error);
-        failed.Template.Should().Be("Webhook failed. WebhookId={WebhookId} Provider={Provider} EventId={EventId} EventType={EventType} Status={Status} Attempt={Attempt} TraceId={TraceId} FailureCode={FailureCode}");
+        failed.Template.Should().Be("Webhook failed. WebhookId={WebhookId} Provider={Provider} EventId={EventId} EventType={EventType} Status={Status} Attempt={Attempt} TraceId={TraceId} CorrelationId={CorrelationId} FailureCode={FailureCode}");
         failed.Has("Exception").Should().BeFalse();
         failed.Exception.Should().BeNull();
         AssertSafe(CoreEntries(logs), BodySecret, HeaderSecret, SignatureSecret, VerifierReasonSecret, ParserSecret, HandlerSecret);
@@ -264,6 +264,9 @@ public sealed class WebhookLoggingTests
         entry.Get("Status").Should().Be(status);
         entry.Get("Attempt").Should().Be(0);
         entry.Get("TraceId").Should().Be(traceId);
+        var correlationId = entry.Get("CorrelationId") as string;
+        correlationId.Should().NotBeNullOrWhiteSpace();
+        correlationId.Should().NotBe(webhookId);
         if (failureCode is null)
         {
             entry.Has("FailureCode").Should().BeFalse();

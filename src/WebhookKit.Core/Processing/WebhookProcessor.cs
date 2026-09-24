@@ -39,106 +39,138 @@ public sealed class WebhookProcessor : IWebhookProcessor, IWebhookDispatchProces
         ArgumentNullException.ThrowIfNull(context);
         cancellationToken.ThrowIfCancellationRequested();
         var traceId = Activity.Current?.TraceId.ToString();
-
-        WebhookLogMessages.Processing(
-            _logger,
+        using var activity = WebhookDiagnostics.StartProcess(
             context.WebhookId,
             context.Provider,
             context.EventId,
             context.EventType,
-            nameof(WebhookProcessingStatus.Processing),
-            0,
-            traceId);
-
-        if (string.IsNullOrWhiteSpace(context.EventType))
-        {
-            WebhookLogMessages.Failed(
-                _logger,
-                context.WebhookId,
-                context.Provider,
-                context.EventId,
-                null,
-                nameof(WebhookProcessingStatus.Failed),
-                0,
-                traceId,
-                "missing-event-type");
-            return WebhookDispatchResult.Failed(
-                WebhookDispatchFailureKind.Payload,
-                "missing-event-type",
-                new WebhookPayloadException());
-        }
-
-        var handlers = _registry.GetHandlers(context.EventType);
-        await using var scope = _scopeFactory.CreateAsyncScope();
-        if (handlers.Count == 0)
-        {
-            WebhookLogMessages.Ignored(
-                _logger,
-                context.WebhookId,
-                context.Provider,
-                context.EventId,
-                context.EventType,
-                nameof(WebhookProcessingStatus.Ignored),
-                0,
-                traceId);
-            return WebhookDispatchResult.Ignored();
-        }
+            context.CorrelationId);
 
         try
         {
-            foreach (var handler in handlers)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                await handler.InvokeAsync(scope.ServiceProvider, context, cancellationToken).ConfigureAwait(false);
-            }
-
-            cancellationToken.ThrowIfCancellationRequested();
-            WebhookLogMessages.Processed(
+            WebhookLogMessages.Processing(
                 _logger,
                 context.WebhookId,
                 context.Provider,
                 context.EventId,
                 context.EventType,
-                nameof(WebhookProcessingStatus.Processed),
+                nameof(WebhookProcessingStatus.Processing),
                 0,
-                traceId);
-            return WebhookDispatchResult.Processed();
+                traceId,
+                context.CorrelationId);
+
+            if (string.IsNullOrWhiteSpace(context.EventType))
+            {
+                WebhookLogMessages.Failed(
+                    _logger,
+                    context.WebhookId,
+                    context.Provider,
+                    context.EventId,
+                    null,
+                    nameof(WebhookProcessingStatus.Failed),
+                    0,
+                    traceId,
+                    context.CorrelationId,
+                    "missing-event-type");
+                WebhookDiagnostics.SetResult(activity, nameof(WebhookProcessingStatus.Failed), true);
+                return WebhookDispatchResult.Failed(
+                    WebhookDispatchFailureKind.Payload,
+                    "missing-event-type",
+                    new WebhookPayloadException());
+            }
+
+            var handlers = _registry.GetHandlers(context.EventType);
+            await using var scope = _scopeFactory.CreateAsyncScope();
+            if (handlers.Count == 0)
+            {
+                WebhookLogMessages.Ignored(
+                    _logger,
+                    context.WebhookId,
+                    context.Provider,
+                    context.EventId,
+                    context.EventType,
+                    nameof(WebhookProcessingStatus.Ignored),
+                    0,
+                    traceId,
+                    context.CorrelationId);
+                WebhookDiagnostics.SetResult(activity, nameof(WebhookProcessingStatus.Ignored), false);
+                return WebhookDispatchResult.Ignored();
+            }
+
+            try
+            {
+                foreach (var handler in handlers)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    await handler.InvokeAsync(scope.ServiceProvider, context, cancellationToken).ConfigureAwait(false);
+                }
+
+                cancellationToken.ThrowIfCancellationRequested();
+                WebhookLogMessages.Processed(
+                    _logger,
+                    context.WebhookId,
+                    context.Provider,
+                    context.EventId,
+                    context.EventType,
+                    nameof(WebhookProcessingStatus.Processed),
+                    0,
+                    traceId,
+                    context.CorrelationId);
+                WebhookDiagnostics.SetResult(activity, nameof(WebhookProcessingStatus.Processed), false);
+                return WebhookDispatchResult.Processed();
+            }
+            catch (OperationCanceledException)
+            {
+                WebhookDiagnostics.SetResult(activity, "Cancelled", true);
+                throw;
+            }
+            catch (WebhookPayloadException) when (cancellationToken.IsCancellationRequested)
+            {
+                WebhookDiagnostics.SetResult(activity, "Cancelled", true);
+                throw new OperationCanceledException(cancellationToken);
+            }
+            catch (WebhookPayloadException exception)
+            {
+                WebhookLogMessages.Failed(
+                    _logger,
+                    context.WebhookId,
+                    context.Provider,
+                    context.EventId,
+                    context.EventType,
+                    nameof(WebhookProcessingStatus.Failed),
+                    0,
+                    traceId,
+                    context.CorrelationId,
+                    "payload-invalid");
+                WebhookDiagnostics.SetResult(activity, nameof(WebhookProcessingStatus.Failed), true);
+                return WebhookDispatchResult.Failed(WebhookDispatchFailureKind.Payload, "payload-invalid", exception);
+            }
+            catch (Exception exception)
+            {
+                WebhookLogMessages.Failed(
+                    _logger,
+                    context.WebhookId,
+                    context.Provider,
+                    context.EventId,
+                    context.EventType,
+                    nameof(WebhookProcessingStatus.Failed),
+                    0,
+                    traceId,
+                    context.CorrelationId,
+                    "handler-failed");
+                WebhookDiagnostics.SetResult(activity, nameof(WebhookProcessingStatus.Failed), true);
+                return WebhookDispatchResult.Failed(WebhookDispatchFailureKind.Handler, "handler-failed", exception);
+            }
         }
         catch (OperationCanceledException)
         {
+            WebhookDiagnostics.SetResult(activity, "Cancelled", true);
             throw;
         }
-        catch (WebhookPayloadException) when (cancellationToken.IsCancellationRequested)
+        catch (Exception)
         {
-            throw new OperationCanceledException(cancellationToken);
-        }
-        catch (WebhookPayloadException exception)
-        {
-            WebhookLogMessages.Failed(
-                _logger,
-                context.WebhookId,
-                context.Provider,
-                context.EventId,
-                context.EventType,
-                nameof(WebhookProcessingStatus.Failed),
-                0,
-                traceId,
-                "payload-invalid");
-            return WebhookDispatchResult.Failed(WebhookDispatchFailureKind.Payload, "payload-invalid", exception);
-        }
-        catch (Exception exception)
-        {
-            WebhookLogMessages.Failed(
-                _logger,
-                context.WebhookId,
-                context.Provider,
-                context.EventId,
-                context.EventType,
-                nameof(WebhookProcessingStatus.Failed),
-                0,
-                traceId,
-                "handler-failed");
-            return WebhookDispatchResult.Failed(WebhookDispatchFailureKind.Handler, "handler-failed", exception);
+            WebhookDiagnostics.SetResult(activity, nameof(WebhookProcessingStatus.Failed), true);
+            throw;
         }
     }
 

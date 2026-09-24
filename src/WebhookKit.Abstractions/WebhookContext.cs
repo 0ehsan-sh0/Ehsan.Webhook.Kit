@@ -33,6 +33,8 @@ public sealed class WebhookContext
     /// <summary>WebhookKit-generated transmission identifier.</summary>
     public required string WebhookId { get; init; }
 
+    public string? CorrelationId { get; init; }
+
     /// <summary>Configured provider name.</summary>
     public required string Provider { get; init; }
 

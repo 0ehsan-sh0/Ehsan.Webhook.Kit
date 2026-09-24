@@ -375,6 +375,7 @@ public sealed class InMemoryWebhookStore : IWebhookStore
         return new WebhookRecord
         {
             Id = source.Id,
+            CorrelationId = source.CorrelationId,
             Provider = source.Provider,
             EventId = source.EventId,
             DeduplicationKey = deduplicationKey ?? source.DeduplicationKey,
