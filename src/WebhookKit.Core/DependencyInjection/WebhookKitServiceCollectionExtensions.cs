@@ -1,6 +1,7 @@
 // Copyright (c) Ehsan. Licensed under the MIT License.
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using WebhookKit.Abstractions;
 using WebhookKit.Core.Clocks;
@@ -30,6 +31,7 @@ public static class WebhookKitServiceCollectionExtensions
                 options.MaxRequestBodySizeBytes = prebuilt.MaxRequestBodySizeBytes;
                 options.Storage = prebuilt.Storage;
                 options.Queue = prebuilt.Queue;
+                options.Background = prebuilt.Background;
                 options.JsonSerializerOptions = prebuilt.JsonSerializerOptions;
                 foreach (var (name, provider) in prebuilt.Providers)
                 {
@@ -71,6 +73,11 @@ public static class WebhookKitServiceCollectionExtensions
         ]));
 
         AddProcessingServices(services);
+        if (prebuilt.Background is { Enabled: true })
+        {
+            services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, Workers.WebhookBackgroundWorker>());
+        }
+
         return services;
     }
 

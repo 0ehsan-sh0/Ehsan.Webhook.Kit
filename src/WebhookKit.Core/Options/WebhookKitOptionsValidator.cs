@@ -33,9 +33,45 @@ public sealed class WebhookKitOptionsValidator : IValidateOptions<WebhookKitOpti
             return ValidateOptionsResult.Fail("WebhookKit: Queue Capacity must be greater than zero.");
         }
 
+        var background = options.Background;
+        if (background is null)
+        {
+            return ValidateOptionsResult.Fail("WebhookKit: Background configuration must be provided.");
+        }
+
+        if (background.WorkerConcurrency <= 0)
+        {
+            return ValidateOptionsResult.Fail("WebhookKit: Background WorkerConcurrency must be greater than zero.");
+        }
+
+        if (background.RecoveryInterval <= TimeSpan.Zero)
+        {
+            return ValidateOptionsResult.Fail("WebhookKit: Background RecoveryInterval must be positive.");
+        }
+
+        if (background.RecoveryBatchSize <= 0)
+        {
+            return ValidateOptionsResult.Fail("WebhookKit: Background RecoveryBatchSize must be greater than zero.");
+        }
+
+        if (background.LeaseDuration <= TimeSpan.Zero)
+        {
+            return ValidateOptionsResult.Fail("WebhookKit: Background LeaseDuration must be positive.");
+        }
+
+        if (background.RecoveryAge < TimeSpan.Zero)
+        {
+            return ValidateOptionsResult.Fail("WebhookKit: Background RecoveryAge must be non-negative.");
+        }
+
+        if (background.Enabled && !options.Storage.PersistRawBody)
+        {
+            return ValidateOptionsResult.Fail("WebhookKit: Background processing requires raw body persistence.");
+        }
+
         foreach (var (providerName, provider) in options.Providers)
         {
-            var failure = ValidateProvider(providerName, provider);
+            var failure = ValidateProvider(providerName, provider, background.LeaseDuration);
             if (failure is not null)
             {
                 return failure;
@@ -45,7 +81,10 @@ public sealed class WebhookKitOptionsValidator : IValidateOptions<WebhookKitOpti
         return ValidateOptionsResult.Success;
     }
 
-    private static ValidateOptionsResult? ValidateProvider(string providerName, WebhookProviderOptions provider)
+    private static ValidateOptionsResult? ValidateProvider(
+        string providerName,
+        WebhookProviderOptions provider,
+        TimeSpan leaseDuration)
     {
         if (string.IsNullOrWhiteSpace(providerName))
         {
@@ -136,11 +175,45 @@ public sealed class WebhookKitOptionsValidator : IValidateOptions<WebhookKitOpti
             return ValidateOptionsResult.Fail($"WebhookKit: provider '{providerName}' retry InitialDelay must be non-negative.");
         }
 
-        if (retry.BackoffMultiplier < 1)
+        if (retry.BackoffMultiplier < 1 || double.IsNaN(retry.BackoffMultiplier) || double.IsInfinity(retry.BackoffMultiplier))
         {
             return ValidateOptionsResult.Fail($"WebhookKit: provider '{providerName}' retry BackoffMultiplier must be at least 1.");
         }
 
+        if (leaseDuration <= CalculateMaximumRetryWindow(retry))
+        {
+            return ValidateOptionsResult.Fail($"WebhookKit: provider '{providerName}' lease duration must exceed its maximum retry window.");
+        }
+
         return null;
+    }
+
+    private static TimeSpan CalculateMaximumRetryWindow(WebhookRetryOptions retry)
+    {
+        if (retry.MaxAttempts <= 1 || retry.InitialDelay <= TimeSpan.Zero)
+        {
+            return TimeSpan.Zero;
+        }
+
+        var initialMilliseconds = retry.InitialDelay.TotalMilliseconds;
+        var multiplier = retry.BackoffMultiplier;
+        double totalMilliseconds;
+        if (multiplier == 1)
+        {
+            totalMilliseconds = initialMilliseconds * (retry.MaxAttempts - 1);
+        }
+        else
+        {
+            var attempts = retry.MaxAttempts;
+            totalMilliseconds = initialMilliseconds *
+                ((Math.Pow(multiplier, attempts - 1) - 1) / (multiplier - 1));
+        }
+
+        if (double.IsNaN(totalMilliseconds) || double.IsInfinity(totalMilliseconds) || totalMilliseconds >= TimeSpan.MaxValue.TotalMilliseconds)
+        {
+            return TimeSpan.MaxValue;
+        }
+
+        return TimeSpan.FromMilliseconds(Math.Max(0, totalMilliseconds));
     }
 }

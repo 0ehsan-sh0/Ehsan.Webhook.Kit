@@ -19,6 +19,8 @@ public sealed class WebhookKitOptions
 
     public WebhookQueueOptions Queue { get; set; } = new();
 
+    public WebhookBackgroundOptions Background { get; set; } = new();
+
     public JsonSerializerOptions JsonSerializerOptions { get; set; } = new()
     {
         PropertyNameCaseInsensitive = true
