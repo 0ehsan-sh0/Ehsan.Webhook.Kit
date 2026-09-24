@@ -7,6 +7,22 @@ public sealed class WebhookSignatureOptions
     /// <summary>Header carrying the signature. When set, verification is enabled and secrets are required.</summary>
     public string? HeaderName { get; set; }
 
+    public WebhookSignatureInput Input { get; set; } = WebhookSignatureInput.RawBody;
+
+    public WebhookSignatureInput SigningInput
+    {
+        get => Input;
+        set => Input = value;
+    }
+
+    public string TimestampSeparator { get; set; } = ".";
+
+    public string Separator
+    {
+        get => TimestampSeparator;
+        set => TimestampSeparator = value;
+    }
+
     /// <summary>Hash algorithm. Default HMAC-SHA256.</summary>
     public WebhookHashAlgorithm Algorithm { get; set; } = WebhookHashAlgorithm.HmacSha256;
 

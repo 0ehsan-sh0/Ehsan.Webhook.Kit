@@ -650,7 +650,11 @@ public sealed class WebhookProcessorTests
         services.AddSingleton<IWebhookTimestampVerifier>(timestamp);
         services.AddSingleton<IWebhookEventIdExtractor>(eventId);
         services.AddSingleton<IWebhookEventTypeExtractor>(eventType);
-        services.AddWebhookKit(options => options.AddProvider("test", provider => provider.AllowBodyHashFallback = true));
+        services.AddWebhookKit(options => options.AddProvider("test", provider =>
+        {
+            provider.AllowBodyHashFallback = true;
+            provider.Timestamp.AllowMissing = true;
+        }));
         services.AddSingleton<IWebhookClock>(new FakeWebhookClock(new DateTimeOffset(2026, 9, 24, 0, 0, 0, TimeSpan.Zero)));
         if (registerHandler)
         {

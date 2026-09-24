@@ -216,9 +216,27 @@ public sealed class WebhookTimestampVerifierTests
     }
 
     [Fact]
-    public async Task VerifyAsync_UnconfiguredProvider_Succeeds()
+    public async Task VerifyAsync_UnconfiguredProvider_FailsWhenMissingProtectionIsNotAllowed()
     {
         var (verifier, _) = CreateVerifier();
+        var context = new WebhookVerificationContext
+        {
+            Provider = "unconfigured",
+            RawBody = [],
+            Headers = new Dictionary<string, string[]>()
+        };
+
+        var result = await verifier.VerifyAsync(context);
+        result.IsValid.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task VerifyAsync_UnconfiguredProvider_SucceedsWithExplicitOptOut()
+    {
+        var clock = new FakeWebhookClock(_fixedTime);
+        var options = new WebhookKitOptions();
+        options.AddProvider("unconfigured", provider => provider.Timestamp.AllowMissing = true);
+        var verifier = new WebhookTimestampVerifier(Microsoft.Extensions.Options.Options.Create(options), clock);
         var context = new WebhookVerificationContext
         {
             Provider = "unconfigured",

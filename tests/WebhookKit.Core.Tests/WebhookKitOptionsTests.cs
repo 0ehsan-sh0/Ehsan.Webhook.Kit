@@ -13,6 +13,8 @@ public sealed class WebhookKitOptionsTests
         var options = new WebhookKitOptions();
 
         options.MaxRequestBodySizeBytes.Should().Be(1024 * 1024);
+        options.Storage.PersistRawBody.Should().BeTrue();
+        options.Storage.DiscardRawBodyAfterSuccessfulSync.Should().BeFalse();
         options.Providers.Should().BeEmpty();
     }
 
@@ -94,6 +96,46 @@ public sealed class WebhookKitOptionsTests
     }
 
     [Fact]
+    public void Validator_RequiresTimestampConfigurationUnlessExplicitlyAllowed()
+    {
+        var missing = new WebhookKitOptions();
+        missing.AddProvider("payments", _ => { });
+
+        new WebhookKitOptionsValidator().Validate(null, missing).Succeeded.Should().BeFalse();
+
+        var optedOut = new WebhookKitOptions();
+        optedOut.AddProvider("payments", provider => provider.Timestamp.AllowMissing = true);
+
+        new WebhookKitOptionsValidator().Validate(null, optedOut).Succeeded.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Validator_RejectsNonPositiveProviderBodyLimit()
+    {
+        var options = new WebhookKitOptions();
+        options.AddProvider("payments", provider =>
+        {
+            provider.MaxRequestBodySizeBytes = 0;
+            provider.Timestamp.AllowMissing = true;
+        });
+
+        new WebhookKitOptionsValidator().Validate(null, options).Succeeded.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Validator_RequiresTimestampHeaderForTimestampPrefixedSignatures()
+    {
+        var options = new WebhookKitOptions();
+        options.AddProvider("payments", provider =>
+        {
+            provider.Signature.Input = WebhookSignatureInput.TimestampPrefixedRawBody;
+            provider.Timestamp.AllowMissing = true;
+        });
+
+        new WebhookKitOptionsValidator().Validate(null, options).Succeeded.Should().BeFalse();
+    }
+
+    [Fact]
     public void Validator_AcceptsRotationSecrets()
     {
         var options = new WebhookKitOptions();
@@ -102,6 +144,7 @@ public sealed class WebhookKitOptionsTests
             p.Signature.HeaderName = "X-Signature";
             p.Signature.Secret = "current";
             p.Signature.AdditionalSecrets.Add("previous");
+            p.Timestamp.AllowMissing = true;
         });
 
         new WebhookKitOptionsValidator().Validate(null, options).Succeeded.Should().BeTrue();

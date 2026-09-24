@@ -18,6 +18,11 @@ public sealed class WebhookKitOptionsValidator : IValidateOptions<WebhookKitOpti
             return ValidateOptionsResult.Fail("WebhookKit: MaxRequestBodySizeBytes must be greater than zero.");
         }
 
+        if (options.Storage is null)
+        {
+            return ValidateOptionsResult.Fail("WebhookKit: Storage configuration must be provided.");
+        }
+
         foreach (var (providerName, provider) in options.Providers)
         {
             var failure = ValidateProvider(providerName, provider);
@@ -48,6 +53,11 @@ public sealed class WebhookKitOptionsValidator : IValidateOptions<WebhookKitOpti
             return ValidateOptionsResult.Fail($"WebhookKit: provider '{providerName}' has an unknown signature encoding.");
         }
 
+        if (!Enum.IsDefined(signature.Input))
+        {
+            return ValidateOptionsResult.Fail($"WebhookKit: provider '{providerName}' has an unknown signature input mode.");
+        }
+
         var signatureConfigured = !string.IsNullOrWhiteSpace(signature.HeaderName)
             || !string.IsNullOrWhiteSpace(signature.Secret)
             || signature.AdditionalSecrets.Count > 0;
@@ -72,6 +82,27 @@ public sealed class WebhookKitOptionsValidator : IValidateOptions<WebhookKitOpti
         if (timestamp.Tolerance <= TimeSpan.Zero)
         {
             return ValidateOptionsResult.Fail($"WebhookKit: provider '{providerName}' timestamp tolerance must be positive.");
+        }
+
+        if (string.IsNullOrWhiteSpace(timestamp.HeaderName) && !timestamp.AllowMissing)
+        {
+            return ValidateOptionsResult.Fail($"WebhookKit: provider '{providerName}' must configure a timestamp header or explicitly allow missing timestamps.");
+        }
+
+        if (signature.Input == WebhookSignatureInput.TimestampPrefixedRawBody &&
+            string.IsNullOrWhiteSpace(timestamp.HeaderName))
+        {
+            return ValidateOptionsResult.Fail($"WebhookKit: provider '{providerName}' timestamp-prefixed signatures require a timestamp header.");
+        }
+
+        if (signature.Input == WebhookSignatureInput.TimestampPrefixedRawBody && signature.TimestampSeparator is null)
+        {
+            return ValidateOptionsResult.Fail($"WebhookKit: provider '{providerName}' timestamp-prefixed signatures require a separator.");
+        }
+
+        if (provider.MaxRequestBodySizeBytes is <= 0)
+        {
+            return ValidateOptionsResult.Fail($"WebhookKit: provider '{providerName}' MaxRequestBodySizeBytes must be greater than zero when configured.");
         }
 
         if (provider.EventIdHeaderName is not null && string.IsNullOrWhiteSpace(provider.EventIdHeaderName))

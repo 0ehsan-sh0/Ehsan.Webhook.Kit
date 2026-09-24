@@ -26,16 +26,21 @@ public sealed class WebhookTimestampVerifier : IWebhookTimestampVerifier
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(context);
+        cancellationToken.ThrowIfCancellationRequested();
 
         if (!_options.Value.Providers.TryGetValue(context.Provider, out var providerOptions) ||
-            providerOptions.Timestamp == null ||
-            string.IsNullOrWhiteSpace(providerOptions.Timestamp.HeaderName))
+            providerOptions.Timestamp == null)
         {
-            // Timestamp validation not configured for this provider
-            return ValueTask.FromResult(WebhookVerificationResult.Success());
+            return ValueTask.FromResult(WebhookVerificationResult.Fail("Timestamp verification is not configured."));
         }
 
         var timestampOptions = providerOptions.Timestamp;
+        if (string.IsNullOrWhiteSpace(timestampOptions.HeaderName))
+        {
+            return ValueTask.FromResult(timestampOptions.AllowMissing
+                ? WebhookVerificationResult.Success()
+                : WebhookVerificationResult.Fail("Timestamp verification is not configured."));
+        }
 
         if (!context.Headers.TryGetValue(timestampOptions.HeaderName, out var headerValues) || headerValues.Length == 0)
         {

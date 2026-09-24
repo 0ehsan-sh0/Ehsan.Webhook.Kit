@@ -271,6 +271,31 @@ public sealed class HmacSignatureVerifierTests
     }
 
     [Fact]
+    public async Task VerifyAsync_AdditionalSecretWithoutPrimary_Succeeds()
+    {
+        var verifier = CreateVerifier(provider =>
+        {
+            provider.Signature.Secret = null!;
+            provider.Signature.AdditionalSecrets.Add(Secret);
+        });
+        byte[] body = Encoding.UTF8.GetBytes("{\"event\":\"transfer\"}");
+        string signature = ComputeSignature(body, Secret, WebhookHashAlgorithm.HmacSha256, WebhookSignatureEncoding.Hex);
+        var context = new WebhookVerificationContext
+        {
+            Provider = ProviderName,
+            RawBody = body,
+            Headers = new Dictionary<string, string[]>
+            {
+                [HeaderName] = [signature]
+            }
+        };
+
+        var result = await verifier.VerifyAsync(context);
+
+        result.IsValid.Should().BeTrue();
+    }
+
+    [Fact]
     public async Task VerifyAsync_WrongSecret_Fails()
     {
         var verifier = CreateVerifier();

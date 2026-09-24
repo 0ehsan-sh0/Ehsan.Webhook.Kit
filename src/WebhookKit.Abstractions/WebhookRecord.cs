@@ -37,7 +37,7 @@ public sealed class WebhookRecord
     public long? ContentLength { get; init; }
 
     /// <summary>Exact unmodified raw payload bytes. Null when no body was sent.</summary>
-    public byte[]? RawBody { get; init; }
+    public byte[]? RawBody { get; set; }
 
     /// <summary>Instant the request was received, from <see cref="IWebhookClock"/>.</summary>
     public required DateTimeOffset ReceivedAt { get; init; }

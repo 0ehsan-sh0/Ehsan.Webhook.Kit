@@ -15,6 +15,8 @@ public sealed class WebhookKitOptions
     /// <summary>Global maximum request body size in bytes. Exceeding requests map to 413.</summary>
     public long MaxRequestBodySizeBytes { get; set; } = DefaultMaxRequestBodySizeBytes;
 
+    public WebhookStorageOptions Storage { get; set; } = new();
+
     public JsonSerializerOptions JsonSerializerOptions { get; set; } = new()
     {
         PropertyNameCaseInsensitive = true
