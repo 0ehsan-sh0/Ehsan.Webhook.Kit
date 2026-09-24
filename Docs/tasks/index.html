@@ -23,13 +23,13 @@
   <main>
     <p><a href="../../README.md">README</a> · <a href="../security-audit.md">Security audit</a> · <a href="../verification.md">Verification notes</a></p>
     <h1>WebhookKit completion roadmap</h1>
-    <p>Status reflects the delivered source, committed verification evidence, and the current workspace boundary. It does not imply package publication, release tagging, or external Redis execution.</p>
+    <p>Status reflects the delivered source, committed verification evidence, and the current workspace boundary. It does not imply package publication, release tagging, or external handoff; Task 36 records the authorized local real Redis execution.</p>
     <div class="summary">
-      <div class="card"><span class="complete">34 complete</span><br>Tasks 01–34</div>
-      <div class="card"><span class="pending">3 pending</span><br>Tasks 35–37</div>
+      <div class="card"><span class="complete">36 complete</span><br>Tasks 01–36</div>
+      <div class="card"><span class="pending">1 pending</span><br>Task 37</div>
       <div class="card"><strong>0 in progress</strong><br>Current documentation work is complete</div>
     </div>
-    <p class="note">Tasks 01–09 are supported by the implemented foundations, tests, accepted ADRs, and the delivered ADR 0010 production signing/replay behavior. Tasks 10–29 have committed verification evidence. Task 30 is the user-documentation package verified in this workspace. Tasks 31–33 are supported by their committed package, packing, and CI evidence; Task 34 is supported by the public API review, ADR 0013, focused API tests, package verification, and current build/test evidence. Tasks 35–37 remain pending; remote CI execution, package publication, release tagging, and external release handoff are not claimed.</p>
+    <p class="note">Tasks 01–09 are supported by the implemented foundations, tests, accepted ADRs, and the delivered ADR 0010 production signing/replay behavior. Tasks 10–29 have committed verification evidence. Task 30 is the user-documentation package verified in this workspace. Tasks 31–33 are supported by their committed package, packing, and CI evidence; Task 34 is supported by the public API review, ADR 0013, focused API tests, package verification, and current build/test evidence. Task 35 records the ShortRun benchmark baseline and its confidence caveat. Task 36 records the locally validated v1.0.0 candidate, including live Redis evidence, package hashes, sample checks, and known limitations. Task 37 remains pending; remote CI execution, package publication, release tagging, and external release handoff are not claimed.</p>
     <table>
       <thead><tr><th>Task</th><th>Workstream</th><th>Status</th><th>Evidence</th></tr></thead>
       <tbody>
@@ -55,11 +55,11 @@
         <tr><td>20</td><td><a href="task-20.html">Bounded in-process queue</a></td><td class="complete">Complete</td><td><code>204896a</code></td></tr>
         <tr><td>21</td><td><a href="task-21.html">Hosted worker and recovery loop</a></td><td class="complete">Complete</td><td><code>3a6f85d</code></td></tr>
         <tr><td>22</td><td><a href="task-22.html">Retry classification and exponential backoff</a></td><td class="complete">Complete</td><td><code>404b95d</code></td></tr>
-        <tr><td>23</td><td><a href="task-23.html">Redis store and atomic TTL claims</a></td><td class="complete">Complete</td><td><code>2f07625</code>; real Redis pending externally</td></tr>
+        <tr><td>23</td><td><a href="task-23.html">Redis store and atomic TTL claims</a></td><td class="complete">Complete</td><td><code>2f07625</code>; Task 36 real Redis validation</td></tr>
         <tr><td>24</td><td><a href="task-24.html">EF Core configuration and store</a></td><td class="complete">Complete</td><td><code>ae648cb</code>, <code>f943f29</code></td></tr>
         <tr><td>25</td><td><a href="task-25.html">Consumer testing package</a></td><td class="complete">Complete</td><td><code>c6bf4dd</code></td></tr>
         <tr><td>26</td><td><a href="task-26.html">Security audit</a></td><td class="complete">Complete</td><td><code>b48446f</code></td></tr>
-        <tr><td>27</td><td><a href="task-27.html">Concurrency stress tests</a></td><td class="complete">Complete</td><td><code>c25c4d0</code>; real Redis skipped</td></tr>
+        <tr><td>27</td><td><a href="task-27.html">Concurrency stress tests</a></td><td class="complete">Complete</td><td><code>c25c4d0</code>; Task 36 live Redis rows</td></tr>
         <tr><td>28</td><td><a href="task-28.html">Full integration suite</a></td><td class="complete">Complete</td><td><code>8ee5fd0</code></td></tr>
         <tr><td>29</td><td><a href="task-29.html">Runnable samples</a></td><td class="complete">Complete</td><td><code>897cdab</code></td></tr>
         <tr><td>30</td><td><a href="task-30.html">User README and documentation</a></td><td class="complete">Complete</td><td>Fresh documentation verification in this workspace</td></tr>
@@ -67,8 +67,8 @@
         <tr><td>32</td><td><a href="task-32.html">Package packing and inspection</a></td><td class="complete">Complete</td><td><code>4c3e96a</code></td></tr>
         <tr><td>33</td><td><a href="task-33.html">CI and protected release workflows</a></td><td class="complete">Complete</td><td><code>c3ddf40</code></td></tr>
         <tr><td>34</td><td><a href="task-34.html">Public API review</a></td><td class="complete">Complete</td><td><code>2c6d133</code>; ADR 0013 and Task 34 report</td></tr>
-        <tr><td>35</td><td><a href="task-35.html">BenchmarkDotNet baselines</a></td><td class="pending">Pending</td><td>No completion claim</td></tr>
-        <tr><td>36</td><td><a href="task-36.html">v1.0.0 release-candidate validation</a></td><td class="pending">Pending</td><td>No completion claim</td></tr>
+        <tr><td>35</td><td><a href="task-35.html">BenchmarkDotNet baselines</a></td><td class="complete">Complete</td><td><code>f83fb3b</code>; ShortRun baseline and caveat</td></tr>
+        <tr><td>36</td><td><a href="task-36.html">v1.0.0 release-candidate validation</a></td><td class="complete">Complete</td><td><code>6543d46</code>; release-candidate checklist</td></tr>
         <tr><td>37</td><td><a href="task-37.html">External release preparation without publishing</a></td><td class="pending">Pending</td><td>No completion claim</td></tr>
       </tbody>
     </table>
