@@ -4,10 +4,15 @@
     <TargetFrameworks>net8.0;net9.0;net10.0</TargetFrameworks>
     <Description>Testing utilities, fakes, clock mocks, and request generators for WebhookKit consumer applications.</Description>
     <PackageTags>webhook;testing;mocks;fakes;test-utilities</PackageTags>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\WebhookKit.Core\WebhookKit.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
   </ItemGroup>
 
 </Project>
