@@ -4,6 +4,7 @@ using System.Text;
 using FluentAssertions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using WebhookKit.Abstractions;
 using WebhookKit.AspNetCore.DependencyInjection;
@@ -344,6 +345,10 @@ public sealed class WebhookEndpointLoggingTests
         if (queue is not null)
         {
             services.AddSingleton(queue);
+        }
+        else
+        {
+            services.RemoveAll<IWebhookQueue>();
         }
 
         if (responseFormatter is not null)

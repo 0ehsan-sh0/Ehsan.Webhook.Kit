@@ -23,6 +23,16 @@ public sealed class WebhookKitOptionsValidator : IValidateOptions<WebhookKitOpti
             return ValidateOptionsResult.Fail("WebhookKit: Storage configuration must be provided.");
         }
 
+        if (options.Queue is null)
+        {
+            return ValidateOptionsResult.Fail("WebhookKit: Queue configuration must be provided.");
+        }
+
+        if (options.Queue.Capacity <= 0)
+        {
+            return ValidateOptionsResult.Fail("WebhookKit: Queue Capacity must be greater than zero.");
+        }
+
         foreach (var (providerName, provider) in options.Providers)
         {
             var failure = ValidateProvider(providerName, provider);

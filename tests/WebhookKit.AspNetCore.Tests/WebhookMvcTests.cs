@@ -10,6 +10,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using WebhookKit.Abstractions;
 using WebhookKit.AspNetCore;
 using WebhookKit.AspNetCore.DependencyInjection;
@@ -265,6 +266,10 @@ public sealed class WebhookMvcTests
                 {
                     services.AddSingleton<MvcRecordingSink>();
                     services.AddSingleton<IWebhookQueue>(sp => sp.GetRequiredService<MvcRecordingSink>());
+                }
+                else
+                {
+                    services.RemoveAll<IWebhookQueue>();
                 }
 
                 services.AddWebhookKitAspNetCore();

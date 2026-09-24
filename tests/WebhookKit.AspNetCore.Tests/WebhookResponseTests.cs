@@ -11,6 +11,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using WebhookKit.Abstractions;
 using WebhookKit.AspNetCore;
 using WebhookKit.AspNetCore.DependencyInjection;
@@ -339,6 +340,10 @@ public sealed class WebhookResponseTests
                 {
                     services.AddSingleton<ResponseQueue>();
                     services.AddSingleton<IWebhookQueue>(sp => sp.GetRequiredService<ResponseQueue>());
+                }
+                else
+                {
+                    services.RemoveAll<IWebhookQueue>();
                 }
 
                 services.AddControllers().AddApplicationPart(typeof(ResponseController).Assembly);

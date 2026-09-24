@@ -17,6 +17,8 @@ public sealed class WebhookKitOptions
 
     public WebhookStorageOptions Storage { get; set; } = new();
 
+    public WebhookQueueOptions Queue { get; set; } = new();
+
     public JsonSerializerOptions JsonSerializerOptions { get; set; } = new()
     {
         PropertyNameCaseInsensitive = true

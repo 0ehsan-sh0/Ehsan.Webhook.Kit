@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using WebhookKit.Abstractions;
 using WebhookKit.AspNetCore;
@@ -732,6 +733,10 @@ public sealed class WebhookEndpointServiceTests
         if (queue is not null)
         {
             services.AddSingleton(queue);
+        }
+        else
+        {
+            services.RemoveAll<IWebhookQueue>();
         }
 
         if (registerHandler)

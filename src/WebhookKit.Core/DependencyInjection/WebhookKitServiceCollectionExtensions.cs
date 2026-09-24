@@ -29,6 +29,7 @@ public static class WebhookKitServiceCollectionExtensions
             {
                 options.MaxRequestBodySizeBytes = prebuilt.MaxRequestBodySizeBytes;
                 options.Storage = prebuilt.Storage;
+                options.Queue = prebuilt.Queue;
                 options.JsonSerializerOptions = prebuilt.JsonSerializerOptions;
                 foreach (var (name, provider) in prebuilt.Providers)
                 {
@@ -42,6 +43,8 @@ public static class WebhookKitServiceCollectionExtensions
         services.TryAddSingleton<IWebhookIdGenerator, Clocks.WebhookIdGenerator>();
         services.TryAddSingleton<IWebhookDeserializer, Deserialization.SystemTextJsonWebhookDeserializer>();
         services.TryAddSingleton<IWebhookStore, Stores.InMemoryWebhookStore>();
+        services.TryAddSingleton<Queues.ChannelWebhookQueue>();
+        services.TryAddSingleton<IWebhookQueue>(sp => sp.GetRequiredService<Queues.ChannelWebhookQueue>());
         services.TryAddSingleton<Deduplication.WebhookDeduplicationKeyFactory>();
         services.TryAddSingleton<Deduplication.DefaultWebhookDeduplicator>();
         services.TryAddSingleton<IWebhookDeduplicator>(sp => sp.GetRequiredService<Deduplication.DefaultWebhookDeduplicator>());
