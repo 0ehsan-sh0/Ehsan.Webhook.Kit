@@ -6,7 +6,7 @@ using WebhookKit.Core.Options;
 namespace WebhookKit.Core.Handlers;
 
 /// <summary>Describes a registered strongly typed handler and its event mapping.</summary>
-public sealed class WebhookHandlerDescriptor
+internal sealed class WebhookHandlerDescriptor
 {
     private readonly IWebhookHandlerInvoker _invoker;
 

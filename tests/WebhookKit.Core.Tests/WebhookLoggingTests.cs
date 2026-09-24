@@ -352,7 +352,7 @@ public sealed class WebhookLoggingTests
             Provider = ProviderName,
             HttpMethod = "POST",
             RequestPath = "/webhooks/logging",
-            Headers = new Dictionary<string, string[]>
+            Headers = new Dictionary<string, IReadOnlyList<string>>
             {
                 ["X-Event-Id"] = eventId is null ? [] : [eventId],
                 ["X-Event-Type"] = eventType is null ? [] : [eventType],

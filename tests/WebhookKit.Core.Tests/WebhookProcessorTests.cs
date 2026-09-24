@@ -291,7 +291,7 @@ public sealed class WebhookProcessorTests
             Provider = "test",
             EventType = "event.type",
             ReceivedAt = new DateTimeOffset(2026, 9, 24, 0, 0, 0, TimeSpan.Zero),
-            Headers = new Dictionary<string, string[]>()
+            Headers = new Dictionary<string, IReadOnlyList<string>>()
         };
 
         var dispatch = Task.Run(async () => await processor.DispatchAsync(context, cancellation.Token));
@@ -321,7 +321,7 @@ public sealed class WebhookProcessorTests
             Provider = "test",
             EventType = "event.type",
             ReceivedAt = new DateTimeOffset(2026, 9, 24, 0, 0, 0, TimeSpan.Zero),
-            Headers = new Dictionary<string, string[]>()
+            Headers = new Dictionary<string, IReadOnlyList<string>>()
         };
 
         var result = await processor.DispatchAsync(context);
@@ -476,7 +476,7 @@ public sealed class WebhookProcessorTests
     }
 
     [Fact]
-    public async Task ExistingProcessorContract_RemainsAvailableForSuccessfulDispatch()
+    public async Task DispatchProcessorContract_ProcessesSuccessfulDispatch()
     {
         var services = new ServiceCollection();
         services.AddSingleton<InvocationLog>();
@@ -484,10 +484,11 @@ public sealed class WebhookProcessorTests
         services.AddWebhookHandler<FirstHandler>("event.type");
         using var provider = services.BuildServiceProvider();
         using var scope = provider.CreateScope();
-        var processor = scope.ServiceProvider.GetRequiredService<IWebhookProcessor>();
+        var processor = scope.ServiceProvider.GetRequiredService<IWebhookDispatchProcessor>();
 
-        await processor.ProcessAsync(CreateContext("event.type"));
+        var result = await processor.DispatchAsync(CreateContext("event.type"));
 
+        result.Status.Should().Be(WebhookDispatchStatus.Processed);
         scope.ServiceProvider.GetRequiredService<InvocationLog>().Entries.Should().Equal("first");
     }
 
@@ -499,7 +500,7 @@ public sealed class WebhookProcessorTests
             Provider = "test",
             EventType = eventType,
             ReceivedAt = new DateTimeOffset(2026, 9, 24, 0, 0, 0, TimeSpan.Zero),
-            Headers = new Dictionary<string, string[]>()
+            Headers = new Dictionary<string, IReadOnlyList<string>>()
         };
     }
 
@@ -672,7 +673,7 @@ public sealed class WebhookProcessorTests
             Provider = "test",
             HttpMethod = "POST",
             RequestPath = "/webhooks/test",
-            Headers = new Dictionary<string, string[]> { ["X-Test"] = ["value"] },
+            Headers = new Dictionary<string, IReadOnlyList<string>> { ["X-Test"] = ["value"] },
             RawBody = "{\"value\":42}"u8.ToArray(),
             ContentType = "application/json",
             ContentLength = 12

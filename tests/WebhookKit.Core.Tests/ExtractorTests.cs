@@ -30,7 +30,7 @@ public sealed class ExtractorTests
         {
             Provider = ProviderName,
             RawBody = [],
-            Headers = new Dictionary<string, string[]>
+            Headers = new Dictionary<string, IReadOnlyList<string>>
             {
                 ["X-Event-ID"] = ["evt_998877"]
             }
@@ -50,7 +50,7 @@ public sealed class ExtractorTests
         {
             Provider = ProviderName,
             RawBody = [],
-            Headers = new Dictionary<string, string[]>()
+            Headers = new Dictionary<string, IReadOnlyList<string>>()
         };
 
         var result = await extractor.ExtractAsync(context);
@@ -67,7 +67,7 @@ public sealed class ExtractorTests
         {
             Provider = ProviderName,
             RawBody = body,
-            Headers = new Dictionary<string, string[]>()
+            Headers = new Dictionary<string, IReadOnlyList<string>>()
         };
 
         var result = await extractor.ExtractAsync(context);
@@ -84,7 +84,7 @@ public sealed class ExtractorTests
         {
             Provider = ProviderName,
             RawBody = body,
-            Headers = new Dictionary<string, string[]>()
+            Headers = new Dictionary<string, IReadOnlyList<string>>()
         };
 
         var result = await extractor.ExtractAsync(context);
@@ -101,7 +101,7 @@ public sealed class ExtractorTests
         {
             Provider = ProviderName,
             RawBody = body,
-            Headers = new Dictionary<string, string[]>()
+            Headers = new Dictionary<string, IReadOnlyList<string>>()
         };
 
         var result = await extractor.ExtractAsync(context);
@@ -122,7 +122,7 @@ public sealed class ExtractorTests
         {
             Provider = ProviderName,
             RawBody = body,
-            Headers = new Dictionary<string, string[]>
+            Headers = new Dictionary<string, IReadOnlyList<string>>
             {
                 ["X-Event-ID"] = ["header_id_456"]
             }
@@ -146,7 +146,7 @@ public sealed class ExtractorTests
         {
             Provider = ProviderName,
             RawBody = body,
-            Headers = new Dictionary<string, string[]>()
+            Headers = new Dictionary<string, IReadOnlyList<string>>()
         };
 
         var result = await composite.ExtractAsync(context);
@@ -163,7 +163,7 @@ public sealed class ExtractorTests
         {
             Provider = ProviderName,
             RawBody = [],
-            Headers = new Dictionary<string, string[]>
+            Headers = new Dictionary<string, IReadOnlyList<string>>
             {
                 ["X-GitHub-Event"] = ["pull_request"]
             }
@@ -183,7 +183,7 @@ public sealed class ExtractorTests
         {
             Provider = ProviderName,
             RawBody = body,
-            Headers = new Dictionary<string, string[]>()
+            Headers = new Dictionary<string, IReadOnlyList<string>>()
         };
 
         var result = await extractor.ExtractAsync(context);
@@ -204,7 +204,7 @@ public sealed class ExtractorTests
         {
             Provider = ProviderName,
             RawBody = body,
-            Headers = new Dictionary<string, string[]>()
+            Headers = new Dictionary<string, IReadOnlyList<string>>()
         };
 
         var result = await composite.ExtractAsync(context);

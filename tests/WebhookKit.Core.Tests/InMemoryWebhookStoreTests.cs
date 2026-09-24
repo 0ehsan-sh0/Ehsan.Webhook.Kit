@@ -30,18 +30,24 @@ public sealed class InMemoryWebhookStoreTests
     public async Task LookupMethods_ReturnIndependentCopiesOfMutableState()
     {
         var store = new InMemoryWebhookStore(new FakeWebhookClock(Start));
-        var original = CreateRecord("webhook-1", rawBody: [1, 2, 3]);
+        var sourceHeaderValues = new List<string> { "original" };
+        var original = CreateRecord(
+            "webhook-1",
+            rawBody: [1, 2, 3],
+            headers: new Dictionary<string, IReadOnlyList<string>> { ["X-Test"] = sourceHeaderValues });
 
         (await store.TryCreateAsync(original)).Should().BeTrue();
         original.RawBody![0] = 9;
-        original.Headers["X-Test"][0] = "changed";
+        sourceHeaderValues.Add("changed");
 
         var first = await store.GetByWebhookIdAsync("webhook-1");
         first.Should().NotBeNull();
         first!.RawBody.Should().Equal(1, 2, 3);
         first.Headers["X-Test"].Should().Equal("original");
         first.RawBody![0] = 8;
-        first.Headers["X-Test"][0] = "changed-again";
+        var firstHeaderValues = (IList<string>)first.Headers["X-Test"];
+        var mutateFirstHeader = () => firstHeaderValues.Add("changed-again");
+        mutateFirstHeader.Should().Throw<NotSupportedException>();
 
         var second = await store.GetByWebhookIdAsync("webhook-1");
         second!.RawBody.Should().Equal(1, 2, 3);
@@ -249,7 +255,7 @@ public sealed class InMemoryWebhookStoreTests
             DeduplicationKey = "stripe:evt_1",
             HttpMethod = "POST",
             RequestPath = "/webhook",
-            Headers = new Dictionary<string, string[]>(),
+            Headers = new Dictionary<string, IReadOnlyList<string>>(),
             ReceivedAt = Start
         });
         var getWithoutProvider = async () => await store.GetAsync(" ", "evt_1");
@@ -269,7 +275,8 @@ public sealed class InMemoryWebhookStoreTests
         string provider = "stripe",
         string? eventId = "evt_1",
         byte[]? rawBody = null,
-        string? deduplicationKey = null)
+        string? deduplicationKey = null,
+        IReadOnlyDictionary<string, IReadOnlyList<string>>? headers = null)
     {
         var key = deduplicationKey ?? (eventId is null ? $"{provider}:sha256:{new string('a', 64)}" : $"{provider}:{eventId}");
         return new WebhookRecord
@@ -280,7 +287,7 @@ public sealed class InMemoryWebhookStoreTests
             DeduplicationKey = key,
             HttpMethod = "POST",
             RequestPath = "/webhook",
-            Headers = new Dictionary<string, string[]> { ["X-Test"] = ["original"] },
+            Headers = headers ?? new Dictionary<string, IReadOnlyList<string>> { ["X-Test"] = new[] { "original" } },
             RawBody = rawBody ?? [1, 2, 3],
             ReceivedAt = Start,
             Status = WebhookProcessingStatus.Received

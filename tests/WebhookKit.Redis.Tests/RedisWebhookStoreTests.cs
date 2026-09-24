@@ -125,7 +125,9 @@ public sealed class RedisWebhookStoreTests
         first.FailureReason.Should().Be(record.FailureReason);
         first.FailureCode.Should().Be(record.FailureCode);
         first.RawBody![0] = 99;
-        first.Headers["X-Signature"][0] = "changed";
+        var firstHeaderValues = (IList<string>)first.Headers["X-Signature"];
+        var mutateFirstHeader = () => firstHeaderValues[0] = "changed";
+        mutateFirstHeader.Should().Throw<NotSupportedException>();
         var second = await store.GetByWebhookIdAsync(record.Id);
         second!.RawBody.Should().Equal(0, 1, 2, 254, 255);
         second.Headers["X-Signature"].Should().Equal("signature-one", "signature-two");
@@ -623,7 +625,7 @@ public sealed class RedisWebhookStoreTests
             DeduplicationKey = deduplicationKey ?? $"{provider.ToLowerInvariant()}:{eventId}",
             HttpMethod = "POST",
             RequestPath = "/webhooks/stripe",
-            Headers = new Dictionary<string, string[]> { ["X-Test"] = ["original"] },
+            Headers = new Dictionary<string, IReadOnlyList<string>> { ["X-Test"] = new[] { "original" } },
             RawBody = [1, 2, 3],
             ReceivedAt = Start,
             Status = WebhookProcessingStatus.Received
@@ -642,10 +644,10 @@ public sealed class RedisWebhookStoreTests
             EventType = "payment.succeeded",
             HttpMethod = "POST",
             RequestPath = "/webhooks/stripe",
-            Headers = new Dictionary<string, string[]>
+            Headers = new Dictionary<string, IReadOnlyList<string>>
             {
-                ["X-Signature"] = ["signature-one", "signature-two"],
-                ["X-Trace"] = ["trace-1"]
+                ["X-Signature"] = new[] { "signature-one", "signature-two" },
+                ["X-Trace"] = new[] { "trace-1" }
             },
             ContentType = "application/json",
             ContentLength = 5,

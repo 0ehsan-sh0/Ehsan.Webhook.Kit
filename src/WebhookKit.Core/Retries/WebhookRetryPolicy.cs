@@ -13,7 +13,7 @@ public interface IWebhookRetryDelay
 }
 
 /// <summary>Uses <see cref="Task.Delay(TimeSpan, CancellationToken)"/> for retry waits.</summary>
-public sealed class TaskWebhookRetryDelay : IWebhookRetryDelay
+internal sealed class TaskWebhookRetryDelay : IWebhookRetryDelay
 {
     /// <summary>Waits for the requested delay.</summary>
     /// <param name="delay">Time to wait; non-positive values complete immediately.</param>

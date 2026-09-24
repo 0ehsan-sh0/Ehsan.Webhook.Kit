@@ -13,9 +13,9 @@ public sealed class WebhookContextTests
     public void Constructor_CopiesRawBodyAndHeaders_AndPreservesMetadata()
     {
         var rawBody = new byte[] { 7 };
-        var sourceHeaders = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
+        var sourceHeaders = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase)
         {
-            ["X-Event-Id"] = ["evt_original"],
+            ["X-Event-Id"] = new List<string> { "evt_original" },
         };
         var deserializer = new FakeWebhookDeserializer((_, body) => new FirstPayload(body.Span[0]));
         var receivedAt = new DateTimeOffset(2026, 9, 24, 1, 30, 0, TimeSpan.Zero);
@@ -31,7 +31,7 @@ public sealed class WebhookContextTests
         };
 
         rawBody[0] = 9;
-        sourceHeaders["X-Event-Id"][0] = "evt_mutated";
+        ((List<string>)sourceHeaders["X-Event-Id"])[0] = "evt_mutated";
         sourceHeaders["X-Added"] = ["added"];
 
         context.WebhookId.Should().Be("01K7ABC");
@@ -44,10 +44,43 @@ public sealed class WebhookContextTests
         context.Headers.Should().NotContainKey("X-Added");
         context.GetPayload<FirstPayload>().Value.Should().Be(7);
 
-        var mutableHeaders = context.Headers.Should().BeAssignableTo<IDictionary<string, string[]>>().Subject;
+        var mutableHeaders = context.Headers.Should().BeAssignableTo<IDictionary<string, IReadOnlyList<string>>>().Subject;
         mutableHeaders.IsReadOnly.Should().BeTrue();
-        var addHeader = () => mutableHeaders.Add("X-Blocked", ["blocked"]);
+        var addHeader = () => mutableHeaders.Add("X-Blocked", new List<string> { "blocked" });
         addHeader.Should().Throw<NotSupportedException>();
+        var mutableValues = (IList<string>)context.Headers["X-Event-Id"];
+        var mutateValue = () => mutableValues.Add("blocked");
+        mutateValue.Should().Throw<NotSupportedException>();
+    }
+
+    [Fact]
+    public void CorrelationId_IsNonNullStableAndDistinctFromWebhookAndEventIds()
+    {
+        var context = CreateContext(new FakeWebhookDeserializer((_, _) => new FirstPayload(1)));
+        var first = context.CorrelationId;
+
+        first.Should().NotBeNullOrWhiteSpace();
+        first.Should().NotBe(context.WebhookId);
+        context.CorrelationId.Should().Be(first);
+    }
+
+    [Fact]
+    public async Task CorrelationId_IsStableAcrossConcurrentReads()
+    {
+        var context = CreateContext(new FakeWebhookDeserializer((_, _) => new FirstPayload(1)));
+        var start = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var reads = Enumerable.Range(0, 128)
+            .Select(_ => Task.Run(async () =>
+            {
+                await start.Task;
+                return context.CorrelationId;
+            }))
+            .ToArray();
+
+        start.SetResult(true);
+        var values = await Task.WhenAll(reads);
+
+        values.Distinct().Should().ContainSingle();
     }
 
     [Fact]
@@ -174,7 +207,7 @@ public sealed class WebhookContextTests
             WebhookId = "01K7ABC",
             Provider = "stripe",
             ReceivedAt = default,
-            Headers = new Dictionary<string, string[]>(),
+            Headers = new Dictionary<string, IReadOnlyList<string>>(),
         };
 
         var exception = act.Should().ThrowExactly<WebhookPayloadException>().Which;
@@ -194,7 +227,7 @@ public sealed class WebhookContextTests
             EventId = "evt_safe",
             EventType = "payment.succeeded",
             ReceivedAt = new DateTimeOffset(2026, 9, 24, 1, 30, 0, TimeSpan.Zero),
-            Headers = new Dictionary<string, string[]>
+            Headers = new Dictionary<string, IReadOnlyList<string>>
             {
                 ["Authorization"] = ["header-secret"],
             },
@@ -217,7 +250,7 @@ public sealed class WebhookContextTests
             WebhookId = "01K7ABC",
             Provider = "stripe",
             ReceivedAt = new DateTimeOffset(2026, 9, 24, 1, 30, 0, TimeSpan.Zero),
-            Headers = new Dictionary<string, string[]>(),
+            Headers = new Dictionary<string, IReadOnlyList<string>>(),
         };
     }
 

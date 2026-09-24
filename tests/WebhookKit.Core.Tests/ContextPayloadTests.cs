@@ -55,7 +55,7 @@ public sealed class ContextPayloadTests
             WebhookId = "01K7ABC",
             Provider = "stripe",
             ReceivedAt = new DateTimeOffset(2026, 9, 24, 1, 30, 0, TimeSpan.Zero),
-            Headers = new Dictionary<string, string[]>(),
+            Headers = new Dictionary<string, IReadOnlyList<string>>(),
         };
     }
 

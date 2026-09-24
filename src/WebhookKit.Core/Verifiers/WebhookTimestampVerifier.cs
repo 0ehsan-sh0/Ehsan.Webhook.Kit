@@ -10,7 +10,7 @@ namespace WebhookKit.Core.Verifiers;
 /// Replay-attack prevention verifier validating provider timestamp headers
 /// against a configured tolerance window using <see cref="IWebhookClock"/>.
 /// </summary>
-public sealed class WebhookTimestampVerifier : IWebhookTimestampVerifier
+internal sealed class WebhookTimestampVerifier : IWebhookTimestampVerifier
 {
     private readonly IOptions<WebhookKitOptions> _options;
     private readonly IWebhookClock _clock;
@@ -49,7 +49,7 @@ public sealed class WebhookTimestampVerifier : IWebhookTimestampVerifier
                 : WebhookVerificationResult.Fail("Timestamp verification is not configured."));
         }
 
-        if (!context.Headers.TryGetValue(timestampOptions.HeaderName, out var headerValues) || headerValues.Length == 0)
+        if (!context.Headers.TryGetValue(timestampOptions.HeaderName, out var headerValues) || headerValues.Count == 0)
         {
             return ValueTask.FromResult(timestampOptions.AllowMissing
                 ? WebhookVerificationResult.Success()

@@ -76,7 +76,7 @@ public sealed class WebhookSecurityTests
         {
             Provider = ProviderName,
             RawBody = body,
-            Headers = new Dictionary<string, string[]>
+            Headers = new Dictionary<string, IReadOnlyList<string>>
             {
                 [SignatureHeader] = [signature]
             }
@@ -152,7 +152,7 @@ public sealed class WebhookSecurityTests
         {
             Provider = ProviderName,
             RawBody = [],
-            Headers = new Dictionary<string, string[]>()
+            Headers = new Dictionary<string, IReadOnlyList<string>>()
         };
 
         var strictResult = await strictVerifier.VerifyAsync(context);
@@ -183,7 +183,7 @@ public sealed class WebhookSecurityTests
         {
             Provider = ProviderName,
             RawBody = [],
-            Headers = new Dictionary<string, string[]>
+            Headers = new Dictionary<string, IReadOnlyList<string>>
             {
                 [TimestampHeader] = [FixedNow.ToString("O", CultureInfo.InvariantCulture)]
             }
@@ -234,7 +234,7 @@ public sealed class WebhookSecurityTests
             Provider = ProviderName,
             HttpMethod = "POST",
             RequestPath = "/webhooks/security",
-            Headers = new Dictionary<string, string[]>
+            Headers = new Dictionary<string, IReadOnlyList<string>>
             {
                 [EventIdHeader] = [$"security-{failureStage}-event"],
                 [EventTypeHeader] = ["security.event"],
@@ -338,7 +338,7 @@ public sealed class WebhookSecurityTests
             Provider = ProviderName,
             HttpMethod = "POST",
             RequestPath = "/webhooks/security",
-            Headers = new Dictionary<string, string[]>
+            Headers = new Dictionary<string, IReadOnlyList<string>>
             {
                 [EventIdHeader] = ["security-core-event"],
                 [EventTypeHeader] = ["security.event"],
@@ -441,7 +441,7 @@ public sealed class WebhookSecurityTests
         {
             Provider = ProviderName,
             RawBody = [],
-            Headers = new Dictionary<string, string[]>
+            Headers = new Dictionary<string, IReadOnlyList<string>>
             {
                 [TimestampHeader] = [timestamp]
             }
@@ -458,7 +458,7 @@ public sealed class WebhookSecurityTests
             DeduplicationKey = $"{ProviderName}:security-event",
             HttpMethod = "POST",
             RequestPath = "/webhooks/security",
-            Headers = new Dictionary<string, string[]>(),
+            Headers = new Dictionary<string, IReadOnlyList<string>>(),
             RawBody = [1, 2, 3],
             ReceivedAt = FixedNow
         };

@@ -43,6 +43,19 @@ public sealed class WebhookTestRequestBuilderTests
     }
 
     [Fact]
+    public void TestRequest_HeaderSnapshotIsDetachedAndReadOnly()
+    {
+        var builder = WebhookTestRequestBuilder.Create(Provider, new FakeWebhookClock(FixedNow))
+            .WithHeaderValues("X-Trace", "one", "two");
+        var snapshot = builder.Headers;
+        var values = (IList<string>)snapshot["X-Trace"];
+        var mutate = () => values.Add("blocked");
+        mutate.Should().Throw<NotSupportedException>();
+        builder.WithHeader("X-Trace", "three");
+        snapshot["X-Trace"].Should().Equal("one", "two");
+    }
+
+    [Fact]
     public async Task TestRequest_BuildCopiesExactRawBytesAndContentType()
     {
         var bytes = new byte[] { 0, 255, 65, 10, 13 };

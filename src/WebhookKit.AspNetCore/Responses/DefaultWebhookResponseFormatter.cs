@@ -3,7 +3,7 @@ using WebhookKit.Abstractions;
 namespace WebhookKit.AspNetCore.Responses;
 
 /// <summary>Default formatter that maps outcomes to safe problem details.</summary>
-public sealed class DefaultWebhookResponseFormatter : IWebhookResponseFormatter
+internal sealed class DefaultWebhookResponseFormatter : IWebhookResponseFormatter
 {
     /// <summary>Maps an endpoint outcome to a stable code and safe message.</summary>
     /// <param name="outcome">The endpoint outcome.</param>

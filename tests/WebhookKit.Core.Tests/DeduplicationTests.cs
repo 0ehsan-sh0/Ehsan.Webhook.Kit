@@ -143,7 +143,7 @@ public sealed class DeduplicationTests
             DeduplicationKey = "stripe:evt_1",
             HttpMethod = "POST",
             RequestPath = "/webhook",
-            Headers = new Dictionary<string, string[]>(),
+            Headers = new Dictionary<string, IReadOnlyList<string>>(),
             RawBody = [1, 2, 3],
             ReceivedAt = Start
         };

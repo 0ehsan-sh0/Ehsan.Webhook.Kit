@@ -11,7 +11,7 @@ namespace WebhookKit.Redis;
 
 /// <summary>Redis-backed webhook store with atomic Lua transitions and lease recovery.</summary>
 /// <remarks>Records and raw bodies are serialized by this provider; callers should not place secrets in failure reasons.</remarks>
-public sealed class RedisWebhookStore : IWebhookStore
+internal sealed class RedisWebhookStore : IWebhookStore
 {
     private const string NegativeInfinityScore = "-inf";
     private const string CreateScript = """
@@ -904,7 +904,7 @@ internal sealed class RedisWebhookRecordDto
         foreach (var header in record.Headers)
         {
             ArgumentNullException.ThrowIfNull(header.Value);
-            headers[header.Key] = (string[])header.Value.Clone();
+            headers[header.Key] = header.Value.ToArray();
         }
 
         var failureReason = RedisWebhookStore.NormalizeFailureReason(record.FailureReason);
@@ -945,23 +945,23 @@ internal sealed class RedisWebhookRecordDto
 
     public WebhookRecord ToRecord()
     {
-        var headers = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
+        var headers = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
         foreach (var header in Headers)
         {
-            headers[header.Key] = (string[])header.Value.Clone();
+            headers[header.Key] = Array.AsReadOnly(header.Value.ToArray());
         }
 
         return new WebhookRecord
         {
             Id = Id,
-            CorrelationId = CorrelationId,
+            CorrelationId = CorrelationId ?? string.Empty,
             Provider = Provider,
             EventId = EventId,
             DeduplicationKey = DeduplicationKey,
             EventType = EventType,
             HttpMethod = HttpMethod,
             RequestPath = RequestPath,
-            Headers = new ReadOnlyDictionary<string, string[]>(headers),
+            Headers = new ReadOnlyDictionary<string, IReadOnlyList<string>>(headers),
             ContentType = ContentType,
             ContentLength = ContentLength,
             RawBody = RawBody?.ToArray(),

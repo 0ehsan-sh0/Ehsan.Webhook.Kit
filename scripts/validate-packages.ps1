@@ -37,7 +37,6 @@ $script:ExpectedPackages = @(
             'Microsoft.Extensions.Hosting.Abstractions' = '8.0.1'
             'Microsoft.Extensions.Logging.Abstractions' = '8.0.2'
             'Microsoft.Extensions.Options' = '8.0.2'
-            'Microsoft.Extensions.Options.ConfigurationExtensions' = '8.0.0'
         }
         FrameworkReferences = @{}
     }

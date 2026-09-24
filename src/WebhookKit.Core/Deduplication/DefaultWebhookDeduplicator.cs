@@ -3,7 +3,7 @@ using WebhookKit.Abstractions;
 namespace WebhookKit.Core.Deduplication;
 
 /// <summary>Uses an <see cref="IWebhookStore"/> to atomically claim a delivery.</summary>
-public sealed class DefaultWebhookDeduplicator : IWebhookDeduplicator
+internal sealed class DefaultWebhookDeduplicator : IWebhookDeduplicator
 {
     private readonly IWebhookStore _store;
 

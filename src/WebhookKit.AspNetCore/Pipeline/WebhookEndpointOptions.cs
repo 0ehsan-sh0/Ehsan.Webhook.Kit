@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using WebhookKit.Abstractions;
 
 namespace WebhookKit.AspNetCore.Pipeline;
@@ -211,7 +212,7 @@ public sealed class WebhookEndpointResponseOptions
 /// <remarks>Instances are snapshotted by endpoint registration so later caller mutation does not change routing behavior.</remarks>
 public sealed class WebhookEndpointOptions
 {
-    private string[]? _tags;
+    private IReadOnlyList<string> _tags = Array.AsReadOnly(Array.Empty<string>());
 
     /// <summary>Creates empty endpoint options for object initializers.</summary>
     public WebhookEndpointOptions()
@@ -264,11 +265,11 @@ public sealed class WebhookEndpointOptions
     /// <summary>Optional OpenAPI description.</summary>
     public string? Description { get; init; }
 
-    /// <summary>OpenAPI tags copied into the endpoint metadata.</summary>
+    /// <summary>Immutable OpenAPI tags copied into the endpoint metadata.</summary>
     public IReadOnlyList<string> Tags
     {
-        get => _tags ?? Array.Empty<string>();
-        init => _tags = value?.ToArray() ?? [];
+        get => _tags;
+        init => _tags = CreateTagSnapshot(value);
     }
 
     /// <summary>HTTP response status configuration.</summary>
@@ -305,7 +306,7 @@ public sealed class WebhookEndpointOptions
             OperationId = OperationId,
             Summary = Summary,
             Description = Description,
-            Tags = _tags?.ToArray() ?? [],
+            Tags = CreateTagSnapshot(_tags),
             Response = new WebhookEndpointResponseOptions
             {
                 SuccessStatusCode = Response.SuccessStatusCode,
@@ -324,6 +325,11 @@ public sealed class WebhookEndpointOptions
                 StatusCodeSelector = Response.StatusCodeSelector
             }
         };
+    }
+
+    private static ReadOnlyCollection<string> CreateTagSnapshot(IReadOnlyList<string>? tags)
+    {
+        return Array.AsReadOnly(tags?.ToArray() ?? []);
     }
 
     internal void Validate()

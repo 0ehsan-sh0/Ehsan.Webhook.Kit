@@ -8,7 +8,7 @@ namespace WebhookKit.EntityFrameworkCore;
 
 /// <summary>Entity Framework Core persistence store for webhook records and processing leases.</summary>
 /// <typeparam name="TContext">Application DbContext type containing <see cref="WebhookEntity"/>.</typeparam>
-public sealed class EfCoreWebhookStore<TContext> : IWebhookStore
+internal sealed class EfCoreWebhookStore<TContext> : IWebhookStore
     where TContext : DbContext
 {
     private static readonly JsonSerializerOptions HeaderJsonOptions = new(JsonSerializerDefaults.Web);
@@ -650,7 +650,7 @@ public sealed class EfCoreWebhookStore<TContext> : IWebhookStore
         return new WebhookRecord
         {
             Id = source.Id,
-            CorrelationId = source.CorrelationId,
+            CorrelationId = source.CorrelationId ?? string.Empty,
             Provider = source.Provider,
             EventId = source.EventId,
             DeduplicationKey = source.DeduplicationKey,
@@ -675,12 +675,12 @@ public sealed class EfCoreWebhookStore<TContext> : IWebhookStore
         };
     }
 
-    private static string SerializeHeaders(IReadOnlyDictionary<string, string[]> headers)
+    private static string SerializeHeaders(IReadOnlyDictionary<string, IReadOnlyList<string>> headers)
     {
         return JsonSerializer.Serialize(headers, HeaderJsonOptions);
     }
 
-    private static ReadOnlyDictionary<string, string[]> DeserializeHeaders(string json)
+    private static ReadOnlyDictionary<string, IReadOnlyList<string>> DeserializeHeaders(string json)
     {
         Dictionary<string, string[]>? headers;
         try
@@ -697,7 +697,7 @@ public sealed class EfCoreWebhookStore<TContext> : IWebhookStore
             throw new InvalidDataException("Stored webhook headers are invalid.");
         }
 
-        var copy = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
+        var copy = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
         foreach (var header in headers)
         {
             if (header.Value is null)
@@ -705,10 +705,10 @@ public sealed class EfCoreWebhookStore<TContext> : IWebhookStore
                 throw new InvalidDataException("Stored webhook headers are invalid.");
             }
 
-            copy[header.Key] = header.Value.ToArray();
+            copy[header.Key] = Array.AsReadOnly(header.Value.ToArray());
         }
 
-        return new ReadOnlyDictionary<string, string[]>(copy);
+        return new ReadOnlyDictionary<string, IReadOnlyList<string>>(copy);
     }
 
     private static ValidatedRecord ValidateRecord(WebhookRecord record)
@@ -766,15 +766,16 @@ public sealed class EfCoreWebhookStore<TContext> : IWebhookStore
             safeCode);
     }
 
-    private static Dictionary<string, string[]> CloneHeaders(IReadOnlyDictionary<string, string[]> headers)
+    private static Dictionary<string, IReadOnlyList<string>> CloneHeaders(
+        IReadOnlyDictionary<string, IReadOnlyList<string>> headers)
     {
         ArgumentNullException.ThrowIfNull(headers);
-        var copy = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
+        var copy = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
         foreach (var header in headers)
         {
             ValidateRequired(header.Key, nameof(headers), 512);
             ArgumentNullException.ThrowIfNull(header.Value);
-            copy[header.Key] = header.Value.ToArray();
+            copy[header.Key] = Array.AsReadOnly(header.Value.ToArray());
         }
 
         return copy;
@@ -928,7 +929,7 @@ public sealed class EfCoreWebhookStore<TContext> : IWebhookStore
         string? EventType,
         string HttpMethod,
         string RequestPath,
-        IReadOnlyDictionary<string, string[]> Headers,
+        IReadOnlyDictionary<string, IReadOnlyList<string>> Headers,
         string? ContentType,
         long? ContentLength,
         byte[]? RawBody,
@@ -955,7 +956,7 @@ public interface IWebhookUniqueConstraintDetector
 }
 
 /// <summary>Recognizes common SQL Server, PostgreSQL, MySQL, and SQLite uniqueness errors.</summary>
-public sealed class ProviderNeutralWebhookUniqueConstraintDetector : IWebhookUniqueConstraintDetector
+internal sealed class ProviderNeutralWebhookUniqueConstraintDetector : IWebhookUniqueConstraintDetector
 {
     /// <summary>Determines whether an update exception represents a unique constraint conflict.</summary>
     /// <param name="exception">The update exception to inspect.</param>

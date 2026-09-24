@@ -33,10 +33,14 @@ public enum WebhookIngestionStatus
 /// <summary>Request metadata and exact bytes supplied to the ingestion service.</summary>
 public sealed class WebhookIngestionRequest
 {
+    private IReadOnlyDictionary<string, IReadOnlyList<string>> _headers =
+        new ReadOnlyDictionary<string, IReadOnlyList<string>>(
+            new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase));
+
     /// <summary>WebhookKit transmission identifier assigned at ingress.</summary>
     public required string WebhookId { get; init; }
 
-    /// <summary>Optional application correlation identifier.</summary>
+    /// <summary>Optional application correlation identifier supplied by the caller.</summary>
     public string? CorrelationId { get; init; }
 
     /// <summary>Configured provider name.</summary>
@@ -48,8 +52,12 @@ public sealed class WebhookIngestionRequest
     /// <summary>Request path of the ingress request.</summary>
     public required string RequestPath { get; init; }
 
-    /// <summary>Request headers; values are copied before asynchronous processing.</summary>
-    public required IReadOnlyDictionary<string, string[]> Headers { get; init; }
+    /// <summary>Immutable request headers with multiple read-only values per key.</summary>
+    public required IReadOnlyDictionary<string, IReadOnlyList<string>> Headers
+    {
+        get => _headers;
+        init => _headers = CreateHeaderSnapshot(value);
+    }
 
     /// <summary>Exact request bytes used for verification and payload deserialization.</summary>
     public required ReadOnlyMemory<byte> RawBody { get; init; }
@@ -59,6 +67,21 @@ public sealed class WebhookIngestionRequest
 
     /// <summary>Optional request content length.</summary>
     public long? ContentLength { get; init; }
+
+    private static ReadOnlyDictionary<string, IReadOnlyList<string>> CreateHeaderSnapshot(
+        IReadOnlyDictionary<string, IReadOnlyList<string>> headers)
+    {
+        ArgumentNullException.ThrowIfNull(headers);
+        var snapshot = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var header in headers)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(header.Key);
+            ArgumentNullException.ThrowIfNull(header.Value);
+            snapshot[header.Key] = Array.AsReadOnly(header.Value.ToArray());
+        }
+
+        return new ReadOnlyDictionary<string, IReadOnlyList<string>>(snapshot);
+    }
 }
 
 /// <summary>Safe result of synchronous or asynchronous webhook ingestion.</summary>
@@ -215,7 +238,6 @@ public sealed class WebhookIngestionService
     /// <param name="eventIdExtractor">Extracts the provider event identifier.</param>
     /// <param name="eventTypeExtractor">Extracts the provider event type.</param>
     /// <param name="deduplicator">Atomically claims the provider-scoped delivery.</param>
-    /// <param name="keyFactory">Creates the deduplication key.</param>
     /// <param name="deserializer">Deserializes admitted payloads.</param>
     /// <param name="store">Persists records and processing leases.</param>
     /// <param name="clock">Supplies deterministic timestamps.</param>
@@ -229,7 +251,6 @@ public sealed class WebhookIngestionService
         IWebhookEventIdExtractor eventIdExtractor,
         IWebhookEventTypeExtractor eventTypeExtractor,
         IWebhookDeduplicator deduplicator,
-        WebhookDeduplicationKeyFactory keyFactory,
         IWebhookDeserializer deserializer,
         IWebhookStore store,
         IWebhookClock clock,
@@ -243,7 +264,7 @@ public sealed class WebhookIngestionService
         _eventIdExtractor = eventIdExtractor ?? throw new ArgumentNullException(nameof(eventIdExtractor));
         _eventTypeExtractor = eventTypeExtractor ?? throw new ArgumentNullException(nameof(eventTypeExtractor));
         _deduplicator = deduplicator ?? throw new ArgumentNullException(nameof(deduplicator));
-        _keyFactory = keyFactory ?? throw new ArgumentNullException(nameof(keyFactory));
+        _keyFactory = new WebhookDeduplicationKeyFactory();
         _deserializer = deserializer ?? throw new ArgumentNullException(nameof(deserializer));
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
@@ -986,17 +1007,17 @@ public sealed class WebhookIngestionService
         }
     }
 
-    private static ReadOnlyDictionary<string, string[]> CopyHeaders(
-        IReadOnlyDictionary<string, string[]> headers)
+    private static ReadOnlyDictionary<string, IReadOnlyList<string>> CopyHeaders(
+        IReadOnlyDictionary<string, IReadOnlyList<string>> headers)
     {
-        var snapshot = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
+        var snapshot = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
         foreach (var header in headers)
         {
-            ArgumentNullException.ThrowIfNull(header.Key);
+            ArgumentException.ThrowIfNullOrWhiteSpace(header.Key);
             ArgumentNullException.ThrowIfNull(header.Value);
-            snapshot[header.Key] = (string[])header.Value.Clone();
+            snapshot[header.Key] = Array.AsReadOnly(header.Value.ToArray());
         }
 
-        return new ReadOnlyDictionary<string, string[]>(snapshot);
+        return new ReadOnlyDictionary<string, IReadOnlyList<string>>(snapshot);
     }
 }

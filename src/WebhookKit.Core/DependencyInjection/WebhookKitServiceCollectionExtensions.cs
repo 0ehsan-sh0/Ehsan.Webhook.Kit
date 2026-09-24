@@ -48,7 +48,6 @@ public static class WebhookKitServiceCollectionExtensions
         services.TryAddSingleton<IWebhookStore, Stores.InMemoryWebhookStore>();
         services.TryAddSingleton<Queues.ChannelWebhookQueue>();
         services.TryAddSingleton<IWebhookQueue>(sp => sp.GetRequiredService<Queues.ChannelWebhookQueue>());
-        services.TryAddSingleton<Deduplication.WebhookDeduplicationKeyFactory>();
         services.TryAddScoped<Deduplication.DefaultWebhookDeduplicator>();
         services.TryAddScoped<IWebhookDeduplicator>(sp => sp.GetRequiredService<Deduplication.DefaultWebhookDeduplicator>());
 
@@ -120,7 +119,6 @@ public static class WebhookKitServiceCollectionExtensions
     {
         services.TryAddSingleton<WebhookHandlerRegistry>();
         services.TryAddScoped<WebhookProcessor>();
-        services.TryAddScoped<IWebhookProcessor>(sp => sp.GetRequiredService<WebhookProcessor>());
         services.TryAddScoped<IWebhookDispatchProcessor>(sp => sp.GetRequiredService<WebhookProcessor>());
         services.TryAddScoped<WebhookIngestionService>();
     }

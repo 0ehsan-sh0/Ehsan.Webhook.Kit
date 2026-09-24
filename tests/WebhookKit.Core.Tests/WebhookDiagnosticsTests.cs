@@ -85,6 +85,20 @@ public sealed class WebhookDiagnosticsTests
     }
 
     [Fact]
+    public async Task IngestionRequest_WithoutCorrelation_UsesStableNonNullFallback()
+    {
+        using var provider = BuildProvider();
+        using var scope = provider.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<WebhookIngestionService>();
+        var request = CreateRequest();
+
+        var result = await service.IngestAsync(request);
+
+        result.Record!.CorrelationId.Should().NotBeNullOrWhiteSpace();
+        result.Context!.CorrelationId.Should().Be(result.Record.CorrelationId);
+    }
+
+    [Fact]
     public async Task IngestAsync_PersistsDistinctGeneratedCorrelationAndUpdatesExtractedMetadata()
     {
         var activities = new List<Activity>();
@@ -331,7 +345,7 @@ public sealed class WebhookDiagnosticsTests
             Provider = ProviderName,
             HttpMethod = "POST",
             RequestPath = "/webhooks/diagnostics",
-            Headers = new Dictionary<string, string[]>
+            Headers = new Dictionary<string, IReadOnlyList<string>>
             {
                 ["X-Event-Id"] = [EventId],
                 ["X-Event-Type"] = [EventType],

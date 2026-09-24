@@ -146,7 +146,7 @@ public sealed class WebhookEndpointService : IWebhookEndpointService
                 "Webhook processing failed.", cancellationToken: cancellationToken);
         }
 
-        IReadOnlyDictionary<string, string[]> headers;
+        IReadOnlyDictionary<string, IReadOnlyList<string>> headers;
         try
         {
             headers = SnapshotHeaders(context.Request.Headers);
@@ -562,14 +562,15 @@ public sealed class WebhookEndpointService : IWebhookEndpointService
         return string.IsNullOrWhiteSpace(context.TraceIdentifier) ? null : context.TraceIdentifier;
     }
 
-    private static ReadOnlyDictionary<string, string[]> SnapshotHeaders(IHeaderDictionary headers)
+    private static ReadOnlyDictionary<string, IReadOnlyList<string>> SnapshotHeaders(IHeaderDictionary headers)
     {
-        var snapshot = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
+        var snapshot = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
         foreach (var header in headers)
         {
-            snapshot[header.Key] = header.Value.Select(value => value ?? string.Empty).ToArray();
+            snapshot[header.Key] = Array.AsReadOnly(
+                header.Value.Select(value => value ?? string.Empty).ToArray());
         }
 
-        return new ReadOnlyDictionary<string, string[]>(snapshot);
+        return new ReadOnlyDictionary<string, IReadOnlyList<string>>(snapshot);
     }
 }

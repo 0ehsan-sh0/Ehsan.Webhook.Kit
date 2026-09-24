@@ -3,7 +3,7 @@ using WebhookKit.Core.Options;
 namespace WebhookKit.Core.Handlers;
 
 /// <summary>Immutable event-type to handler registration snapshot.</summary>
-public sealed class WebhookHandlerRegistry
+internal sealed class WebhookHandlerRegistry
 {
     private static readonly IReadOnlyList<WebhookHandlerDescriptor> Empty = Array.Empty<WebhookHandlerDescriptor>();
     private readonly Dictionary<string, IReadOnlyList<WebhookHandlerDescriptor>> _descriptors;

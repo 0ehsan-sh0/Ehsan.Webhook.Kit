@@ -9,7 +9,7 @@ namespace WebhookKit.Core.Queues;
 /// <summary>Bounded in-process queue used by the default asynchronous processing path.</summary>
 /// <remarks>The channel is process-local and is not a durable broker; rejected enqueue attempts leave the persisted delivery recoverable.</remarks>
 [SuppressMessage("Naming", "CA1711", Justification = "The queue name is part of the concrete default registration.")]
-public sealed class ChannelWebhookQueue : IWebhookQueue
+internal sealed class ChannelWebhookQueue : IWebhookQueue
 {
     private readonly Channel<WebhookWorkItem> _channel;
 

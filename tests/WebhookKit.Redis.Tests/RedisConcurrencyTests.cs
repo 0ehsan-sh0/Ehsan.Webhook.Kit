@@ -133,7 +133,7 @@ public sealed class RedisConcurrencyTests
             Provider = Provider,
             HttpMethod = "POST",
             RequestPath = "/concurrency/redis",
-            Headers = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
+            Headers = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase)
             {
                 [EventIdHeader] = [EventId],
                 [EventTypeHeader] = [EventType],

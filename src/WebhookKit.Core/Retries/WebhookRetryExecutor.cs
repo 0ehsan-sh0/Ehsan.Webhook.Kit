@@ -28,7 +28,7 @@ public interface IWebhookRetryExecutor
 }
 
 /// <summary>Default retry executor that persists attempts and applies configured backoff.</summary>
-public sealed class WebhookRetryExecutor : IWebhookRetryExecutor
+internal sealed class WebhookRetryExecutor : IWebhookRetryExecutor
 {
     private readonly WebhookRetryPolicy _policy;
     private readonly IWebhookRetryDelay _delay;

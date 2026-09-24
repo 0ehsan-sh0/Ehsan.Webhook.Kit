@@ -6,7 +6,7 @@ namespace WebhookKit.Core.Stores;
 
 /// <summary>Process-local thread-safe webhook store for development and single-process scenarios.</summary>
 /// <remarks>Records are copied on input and output; this store is not durable across process restarts.</remarks>
-public sealed class InMemoryWebhookStore : IWebhookStore
+internal sealed class InMemoryWebhookStore : IWebhookStore
 {
     private readonly ConcurrentDictionary<string, WebhookRecord> _byDeduplicationKey = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, WebhookRecord> _byId = new(StringComparer.Ordinal);
@@ -409,11 +409,12 @@ public sealed class InMemoryWebhookStore : IWebhookStore
 
     private static WebhookRecord Copy(WebhookRecord source, string? deduplicationKey = null)
     {
-        var headers = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
+        var headers = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
         foreach (var header in source.Headers)
         {
+            ArgumentException.ThrowIfNullOrWhiteSpace(header.Key);
             ArgumentNullException.ThrowIfNull(header.Value);
-            headers[header.Key] = (string[])header.Value.Clone();
+            headers[header.Key] = Array.AsReadOnly(header.Value.ToArray());
         }
 
         var safeFailureReason = NormalizeFailureReason(source.FailureReason);
@@ -433,7 +434,7 @@ public sealed class InMemoryWebhookStore : IWebhookStore
             EventType = source.EventType,
             HttpMethod = source.HttpMethod,
             RequestPath = source.RequestPath,
-            Headers = new ReadOnlyDictionary<string, string[]>(headers),
+            Headers = new ReadOnlyDictionary<string, IReadOnlyList<string>>(headers),
             ContentType = source.ContentType,
             ContentLength = source.ContentLength,
             RawBody = source.RawBody?.ToArray(),

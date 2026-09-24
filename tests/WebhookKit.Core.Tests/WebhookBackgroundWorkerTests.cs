@@ -22,6 +22,12 @@ using Xunit;
 
 namespace WebhookKit.Core.Tests;
 
+[CollectionDefinition("WebhookBackgroundWorker", DisableParallelization = true)]
+public sealed class WebhookBackgroundWorkerTestGroup
+{
+}
+
+[Collection("WebhookBackgroundWorker")]
 public sealed class WebhookBackgroundWorkerTests
 {
     private static readonly DateTimeOffset FixedNow = new(2026, 9, 24, 12, 0, 0, TimeSpan.Zero);
@@ -607,7 +613,7 @@ public sealed class WebhookBackgroundWorkerTests
             DeduplicationKey = $"test:{id}",
             HttpMethod = "POST",
             RequestPath = "/webhooks/test",
-            Headers = new Dictionary<string, string[]>
+            Headers = new Dictionary<string, IReadOnlyList<string>>
             {
                 ["X-Test"] = ["value"]
             },

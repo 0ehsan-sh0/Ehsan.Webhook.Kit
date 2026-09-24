@@ -96,7 +96,7 @@ public sealed class EfCoreWebhookStoreTests
             DeduplicationKey = $"stripe:sha256:{new string('A', 64)}",
             HttpMethod = "POST",
             RequestPath = "/webhooks/stripe",
-            Headers = new Dictionary<string, string[]> { ["X-Test"] = ["value"] },
+            Headers = new Dictionary<string, IReadOnlyList<string>> { ["X-Test"] = ["value"] },
             RawBody = [1, 2, 3],
             ReceivedAt = Start
         };
@@ -139,7 +139,11 @@ public sealed class EfCoreWebhookStoreTests
     {
         await using var database = await SqliteTestDatabase.CreateAsync();
         var clock = new FakeWebhookClock(Start);
-        var original = CreateRecord("webhook-copy", rawBody: [1, 2, 3]);
+        var sourceHeaderValues = new List<string> { "original" };
+        var original = CreateRecord(
+            "webhook-copy",
+            rawBody: [1, 2, 3],
+            headers: new Dictionary<string, IReadOnlyList<string>> { ["X-Test"] = sourceHeaderValues });
         await using (var createContext = database.CreateContext())
         {
             var store = new EfCoreWebhookStore<TestContext>(createContext, clock);
@@ -147,7 +151,7 @@ public sealed class EfCoreWebhookStoreTests
         }
 
         original.RawBody![0] = 9;
-        original.Headers["X-Test"]![0] = "changed";
+        sourceHeaderValues.Add("changed");
 
         await using var lookupContext = database.CreateContext();
         var lookupStore = new EfCoreWebhookStore<TestContext>(lookupContext, clock);
@@ -156,7 +160,9 @@ public sealed class EfCoreWebhookStoreTests
         first!.RawBody.Should().Equal(1, 2, 3);
         first.Headers["X-Test"].Should().Equal("original");
         first.RawBody![0] = 8;
-        first.Headers["X-Test"][0] = "changed-again";
+        var firstHeaderValues = (IList<string>)first.Headers["X-Test"];
+        var mutateFirstHeader = () => firstHeaderValues.Add("changed-again");
+        mutateFirstHeader.Should().Throw<NotSupportedException>();
 
         var second = await lookupStore.GetAsync("stripe", "evt-1");
         second.Should().NotBeNull();
@@ -180,7 +186,7 @@ public sealed class EfCoreWebhookStoreTests
             EventType = "payment.succeeded",
             HttpMethod = "PUT",
             RequestPath = "/hooks/stripe",
-            Headers = new Dictionary<string, string[]>
+            Headers = new Dictionary<string, IReadOnlyList<string>>
             {
                 ["X-Signature"] = ["signature-value"],
                 ["X-Multi"] = ["one", "two"]
@@ -516,7 +522,8 @@ public sealed class EfCoreWebhookStoreTests
         string eventId = "evt-1",
         DateTimeOffset? receivedAt = null,
         WebhookProcessingStatus status = WebhookProcessingStatus.Received,
-        byte[]? rawBody = null)
+        byte[]? rawBody = null,
+        IReadOnlyDictionary<string, IReadOnlyList<string>>? headers = null)
     {
         var provider = "stripe";
         return new WebhookRecord
@@ -529,10 +536,10 @@ public sealed class EfCoreWebhookStoreTests
             EventType = "payment.succeeded",
             HttpMethod = "POST",
             RequestPath = "/webhooks/stripe",
-            Headers = new Dictionary<string, string[]>
+            Headers = headers ?? new Dictionary<string, IReadOnlyList<string>>
             {
-                ["X-Test"] = ["original"],
-                ["X-Multi"] = ["one", "two"]
+                ["X-Test"] = new[] { "original" },
+                ["X-Multi"] = new[] { "one", "two" }
             },
             ContentType = "application/json",
             ContentLength = 14,

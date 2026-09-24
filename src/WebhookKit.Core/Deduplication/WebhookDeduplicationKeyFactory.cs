@@ -5,7 +5,7 @@ using WebhookKit.Core.Options;
 namespace WebhookKit.Core.Deduplication;
 
 /// <summary>Creates provider-scoped deduplication keys with an explicit body-hash fallback.</summary>
-public sealed class WebhookDeduplicationKeyFactory
+internal sealed class WebhookDeduplicationKeyFactory
 {
     private const byte FallbackSeparator = 0x00;
     private readonly Encoding _utf8 = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);

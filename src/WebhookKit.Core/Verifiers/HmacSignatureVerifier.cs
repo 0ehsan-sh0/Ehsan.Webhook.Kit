@@ -12,7 +12,7 @@ namespace WebhookKit.Core.Verifiers;
 /// Cryptographic HMAC signature verifier supporting HMAC-SHA256 and HMAC-SHA512,
 /// Hexadecimal and Base64 encodings, secret rotation, and constant-time equality checks.
 /// </summary>
-public sealed class HmacSignatureVerifier : IWebhookSignatureVerifier
+internal sealed class HmacSignatureVerifier : IWebhookSignatureVerifier
 {
     private readonly IOptions<WebhookKitOptions> _options;
 
@@ -57,7 +57,7 @@ public sealed class HmacSignatureVerifier : IWebhookSignatureVerifier
             var timestampOptions = providerOptions.Timestamp;
             if (string.IsNullOrWhiteSpace(timestampOptions.HeaderName) ||
                 !context.Headers.TryGetValue(timestampOptions.HeaderName, out var timestampValues) ||
-                timestampValues.Length == 0 ||
+                timestampValues.Count == 0 ||
                 timestampValues[0] is null)
             {
                 return ValueTask.FromResult(WebhookVerificationResult.Fail("Timestamp header is missing."));
@@ -75,7 +75,7 @@ public sealed class HmacSignatureVerifier : IWebhookSignatureVerifier
             return ValueTask.FromResult(WebhookVerificationResult.Fail("Signature input mode is invalid."));
         }
 
-        if (!context.Headers.TryGetValue(sigOptions.HeaderName, out var headerValues) || headerValues.Length == 0)
+        if (!context.Headers.TryGetValue(sigOptions.HeaderName, out var headerValues) || headerValues.Count == 0)
         {
             return ValueTask.FromResult(
                 WebhookVerificationResult.Fail($"Signature header '{sigOptions.HeaderName}' was missing."));

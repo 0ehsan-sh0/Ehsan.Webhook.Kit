@@ -27,6 +27,27 @@ public sealed class WebhookVerificationTests
     }
 
     [Fact]
+    public void VerificationContext_HeadersAreDetachedAndValuesAreReadOnly()
+    {
+        var source = new Dictionary<string, IReadOnlyList<string>>
+        {
+            ["X-Signature"] = new List<string> { "signature" }
+        };
+        var context = new WebhookVerificationContext
+        {
+            Provider = "stripe",
+            RawBody = [1, 2, 3],
+            Headers = source
+        };
+
+        ((List<string>)source["X-Signature"]).Add("changed");
+        var values = (IList<string>)context.Headers["X-Signature"];
+        var mutate = () => values.Add("blocked");
+        mutate.Should().Throw<NotSupportedException>();
+        context.Headers["X-Signature"].Should().Equal("signature");
+    }
+
+    [Fact]
     public async Task Store_IsMockable_ForAtomicContract()
     {
         var store = Substitute.For<IWebhookStore>();
@@ -36,7 +57,7 @@ public sealed class WebhookVerificationTests
             Provider = "stripe",
             HttpMethod = "POST",
             RequestPath = "/webhooks/stripe",
-            Headers = new Dictionary<string, string[]>(),
+            Headers = new Dictionary<string, IReadOnlyList<string>>(),
             ReceivedAt = DateTimeOffset.UtcNow,
         };
 

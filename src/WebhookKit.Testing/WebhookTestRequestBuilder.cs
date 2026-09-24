@@ -1,7 +1,7 @@
+using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Text.Json;
 using WebhookKit.Abstractions;
-using WebhookKit.Core.Clocks;
 using WebhookKit.Core.Options;
 
 namespace WebhookKit.Testing;
@@ -47,7 +47,7 @@ public sealed class WebhookTestRequestBuilder
     /// <param name="clock">Clock used when a timestamp is generated at build time; the system clock is used when omitted.</param>
     public WebhookTestRequestBuilder(IWebhookClock? clock = null)
         : this(
-            clock ?? new SystemWebhookClock(),
+            clock ?? new SystemClock(),
             null,
             null,
             null,
@@ -156,11 +156,12 @@ public sealed class WebhookTestRequestBuilder
     public byte[] RawBody => _rawBody.ToArray();
     /// <summary>Copy of the exact body bytes as read-only memory.</summary>
     public ReadOnlyMemory<byte> RawBodyMemory => _rawBody.ToArray();
-    /// <summary>Snapshot of configured header values.</summary>
-    public IReadOnlyDictionary<string, string[]> Headers => _headers.ToDictionary(
-        pair => pair.Key,
-        pair => pair.Value.ToArray(),
-        StringComparer.OrdinalIgnoreCase);
+    /// <summary>Immutable snapshot of configured header values.</summary>
+    public IReadOnlyDictionary<string, IReadOnlyList<string>> Headers =>
+        new ReadOnlyDictionary<string, IReadOnlyList<string>>(_headers.ToDictionary(
+            pair => pair.Key,
+            pair => (IReadOnlyList<string>)Array.AsReadOnly(pair.Value.ToArray()),
+            StringComparer.OrdinalIgnoreCase));
 
     /// <summary>Returns a copy using the supplied clock for generated timestamps.</summary>
     /// <param name="clock">Clock to use in the new builder.</param>
@@ -774,5 +775,10 @@ public sealed class WebhookTestRequestBuilder
         {
             throw new ArgumentException("Value must not be empty.", parameterName);
         }
+    }
+
+    private sealed class SystemClock : IWebhookClock
+    {
+        public DateTimeOffset UtcNow => DateTimeOffset.UtcNow;
     }
 }

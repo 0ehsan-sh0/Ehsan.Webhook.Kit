@@ -59,7 +59,7 @@ public sealed class HmacSignatureVerifierTests
         {
             Provider = "unknown",
             RawBody = Encoding.UTF8.GetBytes("{}"),
-            Headers = new Dictionary<string, string[]>()
+            Headers = new Dictionary<string, IReadOnlyList<string>>()
         };
 
         var result = await verifier.VerifyAsync(context);
@@ -75,7 +75,7 @@ public sealed class HmacSignatureVerifierTests
         {
             Provider = ProviderName,
             RawBody = Encoding.UTF8.GetBytes("{}"),
-            Headers = new Dictionary<string, string[]>()
+            Headers = new Dictionary<string, IReadOnlyList<string>>()
         };
 
         var result = await verifier.VerifyAsync(context);
@@ -91,7 +91,7 @@ public sealed class HmacSignatureVerifierTests
         {
             Provider = ProviderName,
             RawBody = Encoding.UTF8.GetBytes("{}"),
-            Headers = new Dictionary<string, string[]>
+            Headers = new Dictionary<string, IReadOnlyList<string>>
             {
                 [HeaderName] = ["   "]
             }
@@ -110,7 +110,7 @@ public sealed class HmacSignatureVerifierTests
         {
             Provider = ProviderName,
             RawBody = Encoding.UTF8.GetBytes("{}"),
-            Headers = new Dictionary<string, string[]>
+            Headers = new Dictionary<string, IReadOnlyList<string>>
             {
                 [HeaderName] = ["not-a-valid-hex-or-base64!@#$"]
             }
@@ -132,7 +132,7 @@ public sealed class HmacSignatureVerifierTests
         {
             Provider = ProviderName,
             RawBody = body,
-            Headers = new Dictionary<string, string[]>
+            Headers = new Dictionary<string, IReadOnlyList<string>>
             {
                 [HeaderName] = [signature]
             }
@@ -154,7 +154,7 @@ public sealed class HmacSignatureVerifierTests
         {
             Provider = ProviderName,
             RawBody = body,
-            Headers = new Dictionary<string, string[]>
+            Headers = new Dictionary<string, IReadOnlyList<string>>
             {
                 [HeaderName] = [signature]
             }
@@ -180,7 +180,7 @@ public sealed class HmacSignatureVerifierTests
         {
             Provider = ProviderName,
             RawBody = body,
-            Headers = new Dictionary<string, string[]>
+            Headers = new Dictionary<string, IReadOnlyList<string>>
             {
                 [HeaderName] = [signature]
             }
@@ -206,7 +206,7 @@ public sealed class HmacSignatureVerifierTests
         {
             Provider = ProviderName,
             RawBody = body,
-            Headers = new Dictionary<string, string[]>
+            Headers = new Dictionary<string, IReadOnlyList<string>>
             {
                 [HeaderName] = [signature]
             }
@@ -230,7 +230,7 @@ public sealed class HmacSignatureVerifierTests
         {
             Provider = ProviderName,
             RawBody = body,
-            Headers = new Dictionary<string, string[]>
+            Headers = new Dictionary<string, IReadOnlyList<string>>
             {
                 [HeaderName] = [$"{prefix}{hexSignature}"]
             }
@@ -260,7 +260,7 @@ public sealed class HmacSignatureVerifierTests
         {
             Provider = ProviderName,
             RawBody = body,
-            Headers = new Dictionary<string, string[]>
+            Headers = new Dictionary<string, IReadOnlyList<string>>
             {
                 [HeaderName] = [signature]
             }
@@ -284,7 +284,7 @@ public sealed class HmacSignatureVerifierTests
         {
             Provider = ProviderName,
             RawBody = body,
-            Headers = new Dictionary<string, string[]>
+            Headers = new Dictionary<string, IReadOnlyList<string>>
             {
                 [HeaderName] = [signature]
             }
@@ -306,7 +306,7 @@ public sealed class HmacSignatureVerifierTests
         {
             Provider = ProviderName,
             RawBody = body,
-            Headers = new Dictionary<string, string[]>
+            Headers = new Dictionary<string, IReadOnlyList<string>>
             {
                 [HeaderName] = [signature]
             }
@@ -328,7 +328,7 @@ public sealed class HmacSignatureVerifierTests
         {
             Provider = ProviderName,
             RawBody = emptyBody,
-            Headers = new Dictionary<string, string[]>
+            Headers = new Dictionary<string, IReadOnlyList<string>>
             {
                 [HeaderName] = [signature]
             }
@@ -349,7 +349,7 @@ public sealed class HmacSignatureVerifierTests
         {
             Provider = ProviderName,
             RawBody = unicodeBody,
-            Headers = new Dictionary<string, string[]>
+            Headers = new Dictionary<string, IReadOnlyList<string>>
             {
                 [HeaderName] = [signature]
             }

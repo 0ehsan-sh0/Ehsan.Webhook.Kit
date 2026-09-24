@@ -9,7 +9,7 @@ namespace WebhookKit.AspNetCore;
 /// Default implementation of <see cref="IWebhookBodyReader"/> that buffers the request stream,
 /// enforces size limits against DoS attacks, and rewinds the stream for downstream consumers.
 /// </summary>
-public sealed class WebhookBodyReader : IWebhookBodyReader
+internal sealed class WebhookBodyReader : IWebhookBodyReader
 {
     private const int BufferSize = 81920; // 80 KB chunk buffer
 

@@ -4,7 +4,7 @@ using WebhookKit.Abstractions;
 namespace WebhookKit.Core.Clocks;
 
 /// <summary>Generates cryptographically random, time-ordered ULID identifiers.</summary>
-public sealed class WebhookIdGenerator : IWebhookIdGenerator
+internal sealed class WebhookIdGenerator : IWebhookIdGenerator
 {
     private const string Alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
     private readonly IWebhookClock _clock;

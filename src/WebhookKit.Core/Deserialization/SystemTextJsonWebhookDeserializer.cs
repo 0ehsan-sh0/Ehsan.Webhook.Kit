@@ -7,7 +7,7 @@ using WebhookKit.Core.Options;
 namespace WebhookKit.Core.Deserialization;
 
 /// <summary>Deserializes webhook bodies with the configured System.Text.Json options.</summary>
-public sealed class SystemTextJsonWebhookDeserializer : IWebhookDeserializer
+internal sealed class SystemTextJsonWebhookDeserializer : IWebhookDeserializer
 {
     private readonly JsonSerializerOptions _options;
 

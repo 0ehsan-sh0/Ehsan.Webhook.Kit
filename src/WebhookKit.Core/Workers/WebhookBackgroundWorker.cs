@@ -14,7 +14,7 @@ using WebhookKit.Core.Retries;
 namespace WebhookKit.Core.Workers;
 
 /// <summary>Consumes queued delivery references, recovers persisted work, and manages processing leases.</summary>
-public sealed class WebhookBackgroundWorker : BackgroundService
+internal sealed class WebhookBackgroundWorker : BackgroundService
 {
     private const string HandlerFailureCode = "handler-failed";
     private const string PayloadFailureCode = "payload-invalid";

@@ -115,7 +115,7 @@ public sealed class DeduplicationConcurrencyTests
             Provider = Provider,
             HttpMethod = "POST",
             RequestPath = "/concurrency/core",
-            Headers = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
+            Headers = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase)
             {
                 [EventIdHeader] = [EventId],
                 [EventTypeHeader] = [EventType],

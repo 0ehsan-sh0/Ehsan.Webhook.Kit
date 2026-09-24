@@ -12,13 +12,15 @@ namespace WebhookKit.Abstractions;
 /// </summary>
 public sealed class WebhookContext
 {
-    private static readonly IReadOnlyDictionary<string, string[]> EmptyHeaders =
-        new ReadOnlyDictionary<string, string[]>(new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase));
+    private static readonly IReadOnlyDictionary<string, IReadOnlyList<string>> EmptyHeaders =
+        new ReadOnlyDictionary<string, IReadOnlyList<string>>(
+            new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase));
 
     private readonly ConcurrentDictionary<Type, Lazy<object>> _payloadCache = new();
     private readonly byte[]? _rawBody;
     private readonly IWebhookDeserializer? _deserializer;
-    private IReadOnlyDictionary<string, string[]> _headers = EmptyHeaders;
+    private IReadOnlyDictionary<string, IReadOnlyList<string>> _headers = EmptyHeaders;
+    private string? _correlationId;
 
     /// <summary>Creates an empty context for metadata-only scenarios.</summary>
     public WebhookContext()
@@ -37,8 +39,22 @@ public sealed class WebhookContext
     /// <summary>WebhookKit-generated transmission identifier.</summary>
     public required string WebhookId { get; init; }
 
-    /// <summary>Application correlation identifier, when supplied by the caller or pipeline.</summary>
-    public string? CorrelationId { get; init; }
+    /// <summary>Application correlation identifier, or a generated value when none was supplied.</summary>
+    public string CorrelationId
+    {
+        get
+        {
+            var correlationId = _correlationId;
+            if (correlationId is not null)
+            {
+                return correlationId;
+            }
+
+            var generated = CreateCorrelationId();
+            return Interlocked.CompareExchange(ref _correlationId, generated, null) ?? generated;
+        }
+        init => _correlationId = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
 
     /// <summary>Configured provider name.</summary>
     public required string Provider { get; init; }
@@ -56,10 +72,10 @@ public sealed class WebhookContext
     public DateTimeOffset? ProviderTimestamp { get; init; }
 
     /// <summary>Read-only request header snapshot with multiple values per key.</summary>
-    public required IReadOnlyDictionary<string, string[]> Headers
+    public required IReadOnlyDictionary<string, IReadOnlyList<string>> Headers
     {
         get => _headers;
-        init => _headers = CreateHeaderSnapshot(value);
+        init => _headers = WebhookHeaderSnapshot.Create(value);
     }
 
     /// <summary>Gets the typed payload, deserializing and caching it on first use.</summary>
@@ -116,14 +132,35 @@ public sealed class WebhookContext
         }
     }
 
-    private static ReadOnlyDictionary<string, string[]> CreateHeaderSnapshot(IReadOnlyDictionary<string, string[]> headers)
+    private string CreateCorrelationId()
     {
-        var snapshot = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
+        string generated;
+        do
+        {
+            generated = Guid.NewGuid().ToString("N");
+        }
+        while (string.Equals(generated, WebhookId, StringComparison.Ordinal) ||
+               string.Equals(generated, EventId, StringComparison.Ordinal));
+
+        return generated;
+    }
+}
+
+internal static class WebhookHeaderSnapshot
+{
+    public static IReadOnlyDictionary<string, IReadOnlyList<string>> Create(
+        IReadOnlyDictionary<string, IReadOnlyList<string>> headers)
+    {
+        ArgumentNullException.ThrowIfNull(headers);
+
+        var snapshot = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
         foreach (var header in headers)
         {
-            snapshot[header.Key] = header.Value.ToArray();
+            ArgumentException.ThrowIfNullOrWhiteSpace(header.Key);
+            ArgumentNullException.ThrowIfNull(header.Value);
+            snapshot[header.Key] = Array.AsReadOnly(header.Value.ToArray());
         }
 
-        return new ReadOnlyDictionary<string, string[]>(snapshot);
+        return new ReadOnlyDictionary<string, IReadOnlyList<string>>(snapshot);
     }
 }

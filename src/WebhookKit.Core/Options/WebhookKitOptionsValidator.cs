@@ -7,7 +7,7 @@ namespace WebhookKit.Core.Options;
 /// <summary>
 /// Startup validation for <see cref="WebhookKitOptions"/>. Failures never include secret values.
 /// </summary>
-public sealed class WebhookKitOptionsValidator : IValidateOptions<WebhookKitOptions>
+internal sealed class WebhookKitOptionsValidator : IValidateOptions<WebhookKitOptions>
 {
     /// <summary>Validates global and per-provider options without exposing secret values.</summary>
     /// <param name="name">Named options instance, when supplied by the options system.</param>

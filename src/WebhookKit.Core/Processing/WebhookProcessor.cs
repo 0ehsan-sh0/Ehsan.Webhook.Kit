@@ -20,7 +20,7 @@ public interface IWebhookDispatchProcessor
 }
 
 /// <summary>Dispatches matching handlers sequentially using a scoped service provider.</summary>
-public sealed class WebhookProcessor : IWebhookProcessor, IWebhookDispatchProcessor
+internal sealed class WebhookProcessor : IWebhookDispatchProcessor
 {
     private readonly WebhookHandlerRegistry _registry;
     private readonly IServiceScopeFactory _scopeFactory;
@@ -189,24 +189,4 @@ public sealed class WebhookProcessor : IWebhookProcessor, IWebhookDispatchProces
         }
     }
 
-    /// <summary>Dispatches the context and rethrows a failed dispatch exception when one is available.</summary>
-    /// <param name="context">The verified context.</param>
-    /// <param name="cancellationToken">Token used to cancel dispatch.</param>
-    /// <returns>A task that completes after successful or ignored dispatch.</returns>
-    /// <exception cref="OperationCanceledException">Cancellation was requested.</exception>
-    public async Task ProcessAsync(WebhookContext context, CancellationToken cancellationToken = default)
-    {
-        var result = await DispatchAsync(context, cancellationToken).ConfigureAwait(false);
-        if (result.Status != WebhookDispatchStatus.Failed)
-        {
-            return;
-        }
-
-        if (result.FailureException is not null)
-        {
-            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(result.FailureException).Throw();
-        }
-
-        throw new InvalidOperationException("Webhook processing failed.");
-    }
 }
