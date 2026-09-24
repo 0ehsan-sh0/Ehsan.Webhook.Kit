@@ -636,7 +636,9 @@ internal sealed class RedisWebhookStore : IWebhookStore
             >= 'J' and <= 'K' or
             >= 'M' and <= 'N' or
             >= 'P' and <= 'R' or
+            'S' or
             >= 'T' and <= 'V' or
+            'W' or
             >= 'X' and <= 'Z';
     }
 
