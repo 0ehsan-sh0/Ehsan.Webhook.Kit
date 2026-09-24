@@ -137,7 +137,7 @@ public interface IWebhookHandler<in TEvent>
 
 Register a concrete handler with `AddWebhookHandler<THandler>(eventType)`. WebhookKit resolves the handler from the current scope, deserializes `TEvent` with the configured `System.Text.Json` options, caches one successful payload per type in the context, and invokes matching handlers sequentially in registration order. The first handler failure stops the sequence.
 
-Use `context.Provider`, `context.EventId`, `context.EventType`, `context.WebhookId`, `context.CorrelationId`, `context.ReceivedAt`, and `context.Headers` for safe metadata. Use `context.GetPayload<T>()` inside application code. The context does not expose a public raw-body property; the pipeline owns raw bytes.
+Use `context.Provider`, `context.EventId`, `context.EventType`, `context.WebhookId`, `context.CorrelationId`, `context.ReceivedAt`, and `context.Headers` for safe metadata. `Headers` is a detached `IReadOnlyDictionary<string, IReadOnlyList<string>>`; `CorrelationId` is non-null and receives a stable, atomically published generated fallback when no caller or ambient value is available. Use `context.GetPayload<T>()` inside application code. The context does not expose a public raw-body property; the pipeline owns raw bytes.
 
 ## Configuration
 
@@ -206,7 +206,7 @@ Raw body and header ownership are separate concerns:
 - The body reader captures the exact bytes before deserialization and rewinds the ASP.NET request stream for downstream consumers.
 - `Storage.PersistRawBody` defaults to `true`. When false, the store receives a record without `RawBody`, while the current synchronous context can still use its in-memory copy.
 - `Storage.DiscardRawBodyAfterSuccessfulSync` defaults to `false`. When true, a successfully processed or ignored synchronous record is updated to remove its persisted raw body. Asynchronous processing requires raw-body persistence.
-- Captured headers remain part of the persisted record by default. Treat headers and raw bodies as sensitive application data, not diagnostic text.
+- Captured headers are copied into detached, read-only snapshots and remain part of the persisted record by default. Treat headers and raw bodies as sensitive application data, not diagnostic text.
 
 JSON uses `System.Text.Json`. `WebhookKitOptions.JsonSerializerOptions` defaults to `PropertyNameCaseInsensitive = true`; configure naming policies or other `JsonSerializerOptions` values on that property. Malformed JSON, an empty result, and invalid typed payloads become a non-retryable payload failure.
 
@@ -321,13 +321,13 @@ app.Run();
 
 Asynchronous admission verifies the request, atomically persists the record, and attempts to enqueue a `WebhookWorkItem` before returning `202 Accepted`. The default queue capacity is `1024`; a full or unavailable queue returns `503 Service Unavailable` while the persisted record remains recoverable.
 
-`ChannelWebhookQueue` is a bounded, in-process notification channel. It is not durable across a process restart and Redis persistence does not make this channel durable. The `IWebhookStore` is the authority for records, deduplication, claims, leases, terminal state, and recovery. The worker periodically queries recoverable `Received` and expired-lease `Processing` records. Default recovery settings are a 30-second interval, 100-record batch, two-minute lease duration, and 30-second recovery age. Terminal records are never reclaimed.
+The default `IWebhookQueue` is a bounded, in-process notification channel. It is not durable across a process restart and Redis persistence does not make this channel durable. The `IWebhookStore` is the authority for records, deduplication, claims, leases, terminal state, and recovery. The default worker periodically queries recoverable `Received` and expired-lease `Processing` records. Default recovery settings are a 30-second interval, 100-record batch, two-minute lease duration, and 30-second recovery age. Terminal records are never reclaimed.
 
 A lease is a time-bounded owner token. Claims atomically move an eligible record to `Processing`, install the owner and expiry, and increment `AttemptCount`. A stale owner cannot release, complete, fail, or overwrite a newer owner. Cancellation releases a claim when possible. Configure lease duration above the maximum retry window for every provider; startup validation enforces that relationship.
 
 ## In-memory storage
 
-`AddWebhookKit` registers `InMemoryWebhookStore` as the default `IWebhookStore`. It is concurrency-safe within one process and is useful for local development, tests, and single-process applications. It is not a shared or durable store: records, deduplication markers, leases, and recovery state disappear on process restart, and separate application instances do not coordinate. Do not use it for multi-instance production deduplication.
+`AddWebhookKit` registers an internal in-memory `IWebhookStore` implementation by default. It is concurrency-safe within one process and is useful for local development, tests, and single-process applications. It is not a shared or durable store: records, deduplication markers, leases, and recovery state disappear on process restart, and separate application instances do not coordinate. Do not use it for multi-instance production deduplication.
 
 The in-memory store still follows the configured raw-body policy and captures request headers. Use Redis or an application-owned relational store for persistence that must survive restarts or coordinate instances.
 

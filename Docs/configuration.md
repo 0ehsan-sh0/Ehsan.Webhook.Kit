@@ -20,7 +20,7 @@ builder.Services.AddWebhookKitAspNetCore();
 builder.Services.AddWebhookHandler<PaymentHandler>("payment.completed");
 ```
 
-`AddWebhookKit` registers `WebhookKitOptions`, startup validation, `SystemWebhookClock`, the default in-memory store, the default bounded channel, extractors, verifiers, deserialization, handler registry, ingestion service, retry executor, and optional hosted worker. The overload with no configuration action is valid when the application supplies its own services or only needs the defaults.
+`AddWebhookKit` registers `WebhookKitOptions`, startup validation, the default clock, the default in-memory store, the default bounded channel, extractors, verifiers, deserialization, handler registry, ingestion service, retry pipeline, and optional hosted worker. These default implementations are internal; consumers depend on the corresponding interfaces and can replace them through DI. The overload with no configuration action is valid when the application supplies its own services or only needs the defaults.
 
 `AddWebhookKitAspNetCore` registers the body reader, endpoint service, response writer/filter, response formatter, MVC model binder, and the Minimal API/MVC adapters. `AddWebhookHandler<THandler>(string eventType)` registers a concrete scoped handler. The non-generic overload accepts a `Type` plus an event type.
 
@@ -101,6 +101,10 @@ The default deduplication key is the normalized provider plus Event ID. If Event
 
 `IWebhookBodyReader.ReadRawBodyAsync` reads the request once, checks `Content-Length`, and bounds streamed reads. The returned `byte[]` is the signature source of truth. `WebhookContext` keeps an internal copy for typed deserialization and does not expose `RawBody` publicly. `WebhookRecord.RawBody` is the persistence representation and can be null according to storage policy.
 
+`WebhookContext`, `WebhookRecord`, `WebhookVerificationContext`, and `WebhookIngestionRequest` expose headers as `IReadOnlyDictionary<string, IReadOnlyList<string>>`. Each constructor or initializer snapshots the supplied dictionary and values, so later caller mutation cannot change the contract object. `WebhookContext.CorrelationId` and `WebhookRecord.CorrelationId` are non-null; when an ingestion path has no caller or ambient correlation value, WebhookKit atomically publishes a stable generated value that cannot equal the Webhook ID or Event ID. `WebhookIngestionRequest.CorrelationId` remains nullable because it is an input DTO and the ingestion service resolves the final value from the caller, ambient activity, or generated fallback.
+
+The raw-body byte array returned by the body reader is copied into the request verification context and record path where required. Store implementations copy the persisted body on input and output, but `WebhookRecord.RawBody` remains a mutable operational property; callers that retain a record should treat the returned array as owned data and avoid mutating it.
+
 `WebhookStorageOptions` has two switches:
 
 - `PersistRawBody` defaults to `true`; when false, the record is created with `RawBody = null`.
@@ -149,9 +153,9 @@ MVC uses `[WebhookEndpoint(providerName)]`. Its `Mode` and `ProcessingMode` prop
 
 ## Queue, leases, and recovery
 
-`ChannelWebhookQueue` is the default `IWebhookQueue`. Its `TryEnqueueAsync` method returns `false` when the bounded channel cannot accept a work item. The endpoint maps that result to `503`; the persisted record is not deleted.
+The default `IWebhookQueue` implementation is a bounded, in-process notification channel. Its `TryEnqueueAsync` method returns `false` when the bounded channel cannot accept a work item. The endpoint maps that result to `503`; the persisted record is not deleted.
 
-The store owns the delivery state machine. `TryClaimAsync` atomically claims `Received` records or expired-lease `Processing` records, increments `AttemptCount`, and installs `ProcessingLeaseOwner` and `ProcessingLeaseExpiresAt`. `ReleaseAsync`, `MarkProcessedAsync`, and `MarkFailedAsync` require the current owner. `GetRecoverableAsync` returns bounded waiting or expired-lease work. The hosted `WebhookBackgroundWorker` owns polling, scope creation, claims, processing, retries, and terminal transitions.
+The store owns the delivery state machine. `TryClaimAsync` atomically claims `Received` records or expired-lease `Processing` records, increments `AttemptCount`, and installs `ProcessingLeaseOwner` and `ProcessingLeaseExpiresAt`. `ReleaseAsync`, `MarkProcessedAsync`, and `MarkFailedAsync` require the current owner. `GetRecoverableAsync` returns bounded waiting or expired-lease work. The default hosted worker owns polling, scope creation, claims, processing, retries, and terminal transitions.
 
 The defaults are:
 
@@ -186,7 +190,7 @@ builder.Services.AddWebhookKit(options =>
 });
 ```
 
-`MaxAttempts` includes the initial attempt. With the defaults, retry delays are based on two seconds and four seconds before exponential growth, with the configured positive jitter ratio applied to each base delay. Only `WebhookRetryableException` is retryable. `WebhookPermanentException`, `WebhookPayloadException`, cancellation, and unknown exceptions are terminal. `WebhookRetryClassifier` is the public classification seam; `WebhookRetryExecutor` composes the configured policy around typed handler dispatch.
+`MaxAttempts` includes the initial attempt. With the defaults, retry delays are based on two seconds and four seconds before exponential growth, with the configured positive jitter ratio applied to each base delay. Only `WebhookRetryableException` is retryable. `WebhookPermanentException`, `WebhookPayloadException`, cancellation, and unknown exceptions are terminal. `WebhookRetryClassifier` is the public classification seam; the default retry executor is internal and composes the configured policy around typed handler dispatch.
 
 ## Optional stores
 
@@ -202,7 +206,7 @@ The two TTLs are independent. Redis scripts atomically create the dedup marker, 
 
 ### Entity Framework Core
 
-`AddWebhookKitEntityFrameworkCore<TContext>()` registers a scoped `EfCoreWebhookStore<TContext>`. `ApplyWebhookConfiguration()` maps the `WebhookEntity`, unique `DeduplicationKey`, status, raw body, header JSON, lease, recovery indexes, and concurrency version. The application owns its `DbContext`, provider, schema creation, migrations, and deployment. The package never calls `EnsureCreated` or `Migrate`.
+`AddWebhookKitEntityFrameworkCore<TContext>()` registers a scoped `IWebhookStore` backed by the internal EF Core implementation. `ApplyWebhookConfiguration()` maps the `WebhookEntity`, unique `DeduplicationKey`, status, raw body, header JSON, lease, recovery indexes, and concurrency version. The application owns its `DbContext`, provider, schema creation, migrations, and deployment. The package never calls `EnsureCreated` or `Migrate`.
 
 ## Testing configuration
 

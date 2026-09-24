@@ -26,38 +26,41 @@ The repository has no separate markdown or lint command. Deterministic local-lin
 
 ## Fresh local results
 
-The commands were run from the worktree on 2026-09-24 after the documentation rewrite:
+The following commands were run from the worktree on 2026-09-24 after the Task 34 public API review:
 
 - Solution Release build: succeeded with 0 warnings and 0 errors.
-- Solution Release tests: Abstractions 16 passed, Core 268 passed, ASP.NET Core 133 passed, EF Core 25 passed, Integration 15 passed, Redis 26 passed and 1 expected real-service skip.
+- Solution Release tests: 494 passed, 0 failed, and 1 expected real-service Redis skip. Per-project counts were Abstractions 21, Core 270, ASP.NET Core 133, EF Core 25, Integration 19, and Redis 26.
+- Solution Debug build and tests: succeeded with 0 warnings, 0 errors, 494 passed, and 1 expected Redis skip.
 - Minimal API, MVC, Redis, and EF Core sample Release builds: each succeeded with 0 warnings and 0 errors.
-- `dotnet format "Ehsan.Webhook.Kit.slnx" --verify-no-changes --no-restore`: exit 0 with no reported changes.
-- Temporary README projects: both Release builds succeeded with 0 warnings and 0 errors.
+- `dotnet format "Ehsan.Webhook.Kit.slnx" --verify-no-changes --no-restore --verbosity minimal`: exit 0 with no reported changes.
+- `scripts\validate-packages.ps1 -Configuration Release`: passed and inspected six packages.
+- Reflection inventory after the review: Abstractions 23, Core 33, ASP.NET Core 16, Redis 2, EF Core 4, and Testing 6 exported types (84 total; 106 before the review).
 
 ## Documentation API cross-check
 
 | Documented surface | Delivered evidence |
 | --- | --- |
-| `AddWebhookKit` | `src/WebhookKit.Core/DependencyInjection/WebhookKitServiceCollectionExtensions.cs` |
-| `AddWebhookKitAspNetCore` | `src/WebhookKit.AspNetCore/DependencyInjection/WebhookKitAspNetCoreServiceCollectionExtensions.cs` |
+| `AddWebhookKit` and replaceable defaults | `src/WebhookKit.Core/DependencyInjection/WebhookKitServiceCollectionExtensions.cs`; default implementations are internal |
+| `AddWebhookKitAspNetCore` and `MapWebhook` overloads | `src/WebhookKit.AspNetCore/DependencyInjection` |
 | `AddWebhookHandler<THandler>` and type overload | `src/WebhookKit.Core/DependencyInjection/WebhookKitServiceCollectionExtensions.cs` |
-| `MapWebhook` overloads | `src/WebhookKit.AspNetCore/DependencyInjection/WebhookEndpointRouteBuilderExtensions.cs` |
 | `WebhookEndpointOptions` and `WebhookProcessingMode` | `src/WebhookKit.AspNetCore/Pipeline/WebhookEndpointOptions.cs` |
-| `WebhookEndpointResponseOptions` | `src/WebhookKit.AspNetCore/Pipeline/WebhookEndpointOptions.cs` |
+| `WebhookEndpointResponseOptions` and read-only tags | `src/WebhookKit.AspNetCore/Pipeline/WebhookEndpointOptions.cs`; `PublicApiTests` |
 | `WebhookEndpointAttribute` and action policy | `src/WebhookKit.AspNetCore/Mvc/WebhookEndpointAttribute.cs` |
 | Provider, signature, timestamp, storage, queue, background, and retry options | `src/WebhookKit.Core/Options` |
-| `IWebhookHandler<T>` and `WebhookContext` | `src/WebhookKit.Abstractions` |
-| HMAC and timestamp verification | `src/WebhookKit.Core/Verifiers` and `tests/WebhookKit.Core.Tests/WebhookSecurityTests.cs` |
+| `IWebhookHandler<T>`, `WebhookContext`, `WebhookRecord`, and header contracts | `src/WebhookKit.Abstractions`; focused Abstractions and PublicApi tests |
+| `IWebhookDispatchProcessor` and dispatch result | `src/WebhookKit.Core/Processing/WebhookProcessor.cs`; `WebhookProcessorTests` and `PublicApiTests` |
+| HMAC and timestamp verification seams | `src/WebhookKit.Core/Verifiers`; implementations are internal and interfaces remain public |
 | Header/JSON/composite extraction | `src/WebhookKit.Core/Extractors` and `tests/WebhookKit.Core.Tests/ExtractorTests.cs` |
 | Body limits and raw-body boundary | `src/WebhookKit.AspNetCore/WebhookBodyReader.cs` and `src/WebhookKit.Abstractions/WebhookContext.cs` |
-| In-memory claims, leases, and recovery | `src/WebhookKit.Core/Stores/InMemoryWebhookStore.cs` |
-| Queue and hosted worker | `src/WebhookKit.Core/Queues/ChannelWebhookQueue.cs` and `src/WebhookKit.Core/Workers/WebhookBackgroundWorker.cs` |
-| `AddWebhookKitRedis` and Redis TTL options | `src/WebhookKit.Redis/RedisServiceCollectionExtensions.cs` and `RedisWebhookStoreOptions.cs` |
-| `AddWebhookKitEntityFrameworkCore` and `ApplyWebhookConfiguration` | `src/WebhookKit.EntityFrameworkCore/EfCoreServiceCollectionExtensions.cs` and `WebhookModelBuilderExtensions.cs` |
-| Testing builder, generator, clock, and harness | `src/WebhookKit.Testing` |
+| In-memory claims, leases, and recovery | `src/WebhookKit.Core/Stores/InMemoryWebhookStore.cs`; internal implementation behind `IWebhookStore` |
+| Queue and hosted worker | `src/WebhookKit.Core/Queues/ChannelWebhookQueue.cs` and `src/WebhookKit.Core/Workers/WebhookBackgroundWorker.cs`; internal implementations |
+| `AddWebhookKitRedis` and Redis TTL options | `src/WebhookKit.Redis/RedisServiceCollectionExtensions.cs` and `RedisWebhookStoreOptions.cs`; store is internal |
+| `AddWebhookKitEntityFrameworkCore` and `ApplyWebhookConfiguration` | `src/WebhookKit.EntityFrameworkCore/EfCoreServiceCollectionExtensions.cs` and `WebhookModelBuilderExtensions.cs`; store is internal |
+| Testing builder, generator, clock, and harness | `src/WebhookKit.Testing`; `PublicApiTests` |
+| Public API inventory and package boundary | `Docs/adr/0013-public-api-review.md` and `tests/WebhookKit.IntegrationTests/PublicApiTests.cs` |
 | Package/project names | `src/*/*.csproj`, `samples/*/*.csproj`, and `Ehsan.Webhook.Kit.slnx` |
 
-A fixed-string source check covered 48 documented public symbols and reported 0 missing symbols.
+The focused API test directly references all six source projects and passed 4/4. The reflection inventory passed with 84 exported types after review, down from 106 before review.
 
 ## Code-block verification
 
@@ -95,7 +98,7 @@ The security evidence is recorded in [security-audit.md](security-audit.md). The
 
 ## Roadmap consistency
 
-The dashboard at `Docs/tasks/index.html` records 30 complete tasks and 7 pending tasks. Task detail pages use the same status for Tasks 01–30 and Tasks 31–37. Tasks 01–09 are supported by the implemented foundations, tests, accepted ADRs, and the delivered ADR 0010 production signing/replay behavior. Tasks 10–29 are supported by their committed verification reports. Task 30 is supported by this documentation verification. Tasks 31–37 remain pending; no release-package, CI, benchmark, or external-publication completion is inferred.
+The dashboard at `Docs/tasks/index.html` records 34 complete tasks and 3 pending tasks. Task detail pages use the same status for Tasks 01–34 and Tasks 35–37. Tasks 01–09 are supported by the implemented foundations, tests, accepted ADRs, and the delivered ADR 0010 production signing/replay behavior. Tasks 10–29 are supported by their committed verification reports. Task 30 is supported by this documentation verification. Tasks 31–33 are supported by their committed package, packing, and CI evidence. Task 34 is supported by ADR 0013, the focused API test, the six-package validator, and the current build/test evidence. Tasks 35–37 remain pending; no benchmark, release-candidate, external-publication, or remote CI execution is inferred.
 
 ## Self-review checklist
 
@@ -103,5 +106,5 @@ The dashboard at `Docs/tasks/index.html` records 30 complete tasks and 7 pending
 - Every documented public symbol was searched in the delivered source or sample projects.
 - The first-run code has no production secret or live payload.
 - Sample request files use placeholders for current timestamps and signatures, and label rejection values as tampered or expired.
-- No implementation, plan, ADR, CONTEXT, ledger, or source-behavior file was changed for this documentation task.
-- The Task 30 report remains under `.superpowers/sdd` and is ignored by `.superpowers/sdd/.gitignore`.
+- The API review keeps identity names distinct, snapshots public headers, documents correlation resolution, internalizes replaceable defaults, and retains the package boundary.
+- The Task 34 report remains under `.superpowers/sdd` and is ignored by `.superpowers/sdd/.gitignore`.
