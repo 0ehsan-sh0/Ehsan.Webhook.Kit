@@ -42,7 +42,7 @@ public static class WebhookKitServiceCollectionExtensions
             .ValidateOnStart();
 
         services.AddSingleton<IValidateOptions<WebhookKitOptions>, WebhookKitOptionsValidator>();
-        services.AddSingleton<IWebhookClock, SystemWebhookClock>();
+        services.TryAddSingleton<IWebhookClock, SystemWebhookClock>();
         services.TryAddSingleton<IWebhookIdGenerator, Clocks.WebhookIdGenerator>();
         services.TryAddSingleton<IWebhookDeserializer, Deserialization.SystemTextJsonWebhookDeserializer>();
         services.TryAddSingleton<IWebhookStore, Stores.InMemoryWebhookStore>();

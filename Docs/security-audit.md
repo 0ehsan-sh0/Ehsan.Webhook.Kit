@@ -4,7 +4,7 @@
 
 ## Conclusion
 
-The implemented WebhookKit production paths passed this internal security audit after three narrow security fixes. No release-blocking defect remains in the audited scope. Release is conditionally acceptable for the in-memory, EF Core, and HTTP paths; deployments that enable Redis should complete real-server integration validation before production rollout.
+The implemented WebhookKit production paths passed this internal security audit after three narrow security fixes. No release-blocking defect remains in the audited scope. The committed standalone local Redis gate has now executed the live store, stale-owner, TTL, and 10/100/1,000-way concurrency rows successfully. Production, Redis Cluster, infrastructure, GitHub-hosted CI, and external release validation remain separate pending gates.
 
 This is an internal automated and source-level audit. It is not an external penetration test, formal assurance review, or clean external security certification.
 
@@ -28,7 +28,7 @@ The review and executable tests covered:
 - Minimal API and MVC handling of handler and dependency failures.
 - Safe expected outcomes for signature, payload, oversize, and queue failures.
 - Sensitive-marker exclusion from logs, activities, acknowledgements, problem responses, safe result strings, and persisted failure diagnostics.
-- Redis key hashing, dedicated DTO serialization, and safe failure persistence through the deterministic Redis adapter double.
+- Redis key hashing, dedicated DTO serialization, and safe failure persistence through the deterministic Redis adapter double, followed by the committed standalone local live-Redis gate.
 - EF Core schema mapping, SQLite persistence, and safe failure persistence.
 - Worker retry and terminal-failure persistence.
 
@@ -133,9 +133,9 @@ dotnet build "Ehsan.Webhook.Kit.slnx" -c Release
 
 | Control | Executable evidence | Implementation evidence | Result |
 |---|---|---|---|
-| HMAC-SHA256 and HMAC-SHA512 use fixed-time equality | `WebhookSecurityTests.HmacVerifier_AllAlgorithmsAndFailureModes_ReturnOneIndistinguishableSafeResult`; `SignatureGenerator_AllAlgorithmsAndFailureModes_ReturnOneIndistinguishableSafeResult` | `HmacSignatureVerifier.VerifyAsync` calls `CryptographicOperations.FixedTimeEquals`; `WebhookSignatureGenerator.VerifyBytes` calls it for every verification secret | Verified |
+| HMAC-SHA256 and HMAC-SHA512 use fixed-time equality for every configured secret | `WebhookSecurityTests.HmacVerifier_AllAlgorithmsAndFailureModes_ReturnOneIndistinguishableSafeResult`; `SignatureGenerator_AllAlgorithmsAndFailureModes_ReturnOneIndistinguishableSafeResult`; `VerifyAsync_ComparesEveryConfiguredSecretBeforeReturningMatch` | `HmacSignatureVerifier.VerifyAsync` and `WebhookSignatureGenerator.VerifyBytes` aggregate `CryptographicOperations.FixedTimeEquals` across all configured verification secrets without first-match return | Verified at implementation level |
 | Tampered, malformed, wrong-secret, and encoding-mismatch results are externally indistinguishable | Eight Core rows per HMAC implementation plus four real Minimal API TestServer requests with identical status, problem code/message, and log shape | Core verifier now has one safe failure reason; endpoint maps all signature rejection to one code | Verified |
-| Secret rotation remains valid | Existing HMAC tests plus configured current and rotation markers in security tests | `HmacSignatureVerifier.VerifyAsync` and `WebhookSignatureGenerator.VerifyBytes` evaluate configured secret collections | Verified |
+| Secret rotation remains valid and every comparison is evaluated | Existing HMAC tests plus configured current and rotation markers in security tests and the no-early-return source regression | `HmacSignatureVerifier.VerifyAsync` and `WebhookSignatureGenerator.VerifyBytes` evaluate all configured secret collections before returning a generic result | Verified |
 | Advertised oversize is rejected before reading or body allocation | `ReadRawBodyAsync_SecurityAdvertisedOversizeRejectsBeforeReadingOrBackingTheBody` | `WebhookBodyReader.ReadRawBodyAsync` checks `Content-Length` before buffering | Verified |
 | Streamed oversize is bounded | `ReadRawBodyAsync_SecurityStreamedOversizeStopsAtOneByteBeyondLimitAndBoundsEveryRead` | `WebhookBodyReader.ReadRawBodyAsync` caps pool rental and read length to the remaining limit plus one byte | Verified |
 | Replay boundary is exact in both directions | `TimestampVerifier_ExactToleranceBoundaries_AcceptsBoundaryAndRejectsOneTickOutside` | `WebhookTimestampVerifier.VerifyAsync` rejects only `skew > tolerance` | Verified |
@@ -147,7 +147,7 @@ dotnet build "Ehsan.Webhook.Kit.slnx" -c Release
 | Sensitive markers do not reach logs, state, activities, responses, or safe strings | Core marker tests and real endpoint tests inject unique raw-body, Authorization, signature, configured-secret, rotation-secret, verifier-reason, parser-detail, handler/dependency-message, and stack-text markers | `WebhookLogMessages`, `WebhookEndpointLogMessages`, and `WebhookDiagnostics` define bounded safe fields; response writer serializes only `WebhookProblemResponse`; result `ToString` methods expose status/code only | Verified |
 | Success acknowledgements do not echo payloads | Four real Minimal API/MVC synchronous/asynchronous acknowledgement rows | Response writer returns immediately for success; no raw request values are written | Verified |
 | Redis keys do not expose provider/Event ID or body hash | `RedisWebhookStoreTests.Keys_HashProviderScopedDeduplicationIdentityAndValidateWebhookId` | `RedisWebhookStore.BuildDeduplicationIdentityHash` uses SHA-256 before key construction | Verified against deterministic adapter |
-| Redis JSON is a dedicated DTO without options, connection strings, exceptions, or configured secrets | `RedisWebhookStoreTests.Serialization_ContainsOnlyDedicatedWebhookRecordDtoFields` | `RedisWebhookRecordDto` is the only serialized record type; store options are constructor snapshots and are not serialized | Verified against deterministic adapter |
+| Redis JSON is a dedicated DTO without options, connection strings, exceptions, or configured secrets | `RedisWebhookStoreTests.Serialization_ContainsOnlyDedicatedWebhookRecordDtoFields`; committed live `RealRedisStore_RoundTripsEveryFieldAndRejectsDuplicate` | `RedisWebhookRecordDto` is the only serialized record type; store options are constructor snapshots and are not serialized | Verified against deterministic adapter and standalone local Redis |
 | EF persistence uses a dedicated entity and sanitizes failure diagnostics | `ApplyWebhookConfiguration_MapsKeysIndexesStorageAndConcurrency`, `RoundTrip_PreservesMetadataBodyCorrelationAttemptsAndSafeFailureFields`, and `MarkFailedAsync_RequiresCurrentOwnerAndSanitizesFailureReason` | `WebhookEntity` has no options, connection, or exception member; `EfCoreWebhookStore` serializes only headers to JSON and normalizes unsafe failure text | Verified with SQLite |
 | Worker and retry persistence do not retain exception details | Existing Core retry and worker suites, including retry exhaustion and unknown-exception rows | `WebhookRetryExecutor` normalizes to safe codes; `WebhookBackgroundWorker.ResolveFailureCode` accepts only bounded code characters | Verified |
 
@@ -157,7 +157,7 @@ dotnet build "Ehsan.Webhook.Kit.slnx" -c Release
 
 - `src/WebhookKit.Core/Verifiers/HmacSignatureVerifier.cs`
   - `VerifyAsync` uses one failure reason for malformed and mismatching signatures.
-  - HMAC comparison remains `CryptographicOperations.FixedTimeEquals` at line 136 after the audit edits.
+  - HMAC comparison uses `CryptographicOperations.FixedTimeEquals` for every configured current and rotation secret before returning.
 - `src/WebhookKit.Core/Verifiers/WebhookTimestampVerifier.cs`
   - `VerifyAsync` maps only `ArgumentOutOfRangeException` from Unix conversion to the existing safe invalid-format result.
 - `src/WebhookKit.AspNetCore/WebhookBodyReader.cs`
@@ -195,18 +195,19 @@ A source search found exactly two production HMAC comparison paths in the reques
   - Unsafe failure text becomes `processing-failed`.
 - `src/WebhookKit.Core/Workers/WebhookBackgroundWorker.cs`
   - Retry and terminal persistence use bounded safe failure codes and do not attach exception objects to logs or records.
+  - Shutdown drain timeout emits only the bounded `shutdown-drain-timeout` code.
 
 ## Known Limitations and Operational Caveats
 
-1. **No real Redis execution evidence:** Task 23 used a deterministic stateful adapter double. This audit did not start or contact Redis. Lua execution, Redis `cjson`, `SET KEEPTTL`, TTL precision, sorted-set score behavior, keyspace behavior, and Redis Cluster slot co-location were not exercised against a real Redis server. This audit makes no claim that those behaviors were executed against Redis.
+1. **Standalone local Redis only:** The committed gate executed Lua, `cjson`, `SET KEEPTTL`, TTL precision, sorted-set/keyspace behavior, stale-owner transitions, and 10/100/1,000-way concurrency against a disposable Redis 7.4.5 service. It did not validate Redis Cluster slot co-location, managed-service identity/TLS/network policy, failover, production capacity, backup/monitoring, deployment configuration, or infrastructure controls. Those remain required before production rollout.
 2. **In-process queue durability:** `ChannelWebhookQueue` is a bounded in-process notification channel. A process restart can lose a notification. Persisted records remain recoverable, but queue delivery itself is not durable across restarts.
 3. **Persistence is intentionally sensitive:** Redis and EF record persistence can retain the raw body and captured request headers, including Authorization or signature header values, according to storage configuration. Datastore encryption, access control, retention, and redaction remain deployment responsibilities.
 4. **Exception objects remain exceptions:** Handler, parser, and dependency exception messages and stacks naturally exist on the in-process exception objects used to classify failures. The tests prove they are not copied to the audited logs, activities, responses, safe result strings, or persisted failure fields.
-5. **Constant-time evidence is implementation-level:** The source audit confirms the required cryptographic primitive at both comparison sites and behavior tests cover all failure modes. This is not a statistical timing measurement or side-channel laboratory assessment.
+5. **Constant-time evidence is implementation-level:** The source audit confirms the required cryptographic primitive at both comparison sites, confirms aggregate evaluation of all configured secrets, and behavior tests cover all failure modes. This is not a statistical timing measurement or side-channel laboratory assessment.
 6. **External assessment not performed:** No independent penetration test, external code review, certification, live provider exercise, or production infrastructure assessment was performed.
 
 ## Release Conclusion
 
-No known release-blocking security defect remains in the implemented and tested scope after the three focused fixes. The automated suites and Release build support a conditional internal release approval. If the Redis store is shipped, real Redis integration and operational validation remain required before production use. The in-process queue durability limitation and sensitive datastore handling must remain documented deployment constraints.
+No known release-blocking security defect remains in the implemented and tested scope after the three focused fixes. The automated suites and committed standalone local Redis gate support a conditional internal release approval. GitHub-hosted CI, production Redis/cluster/infrastructure validation, and external release configuration remain pending. The in-process queue durability limitation and sensitive datastore handling must remain documented deployment constraints.
 
 This conclusion is an internal engineering release decision, not a claim of clean external security certification.

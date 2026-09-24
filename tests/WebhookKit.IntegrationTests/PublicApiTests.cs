@@ -210,6 +210,18 @@ public sealed class PublicApiTests
     }
 
     [Fact]
+    public void PublicApi_VerificationResultCarriesOptionalProviderTimestamp()
+    {
+        var providerTimestamp = new DateTimeOffset(2026, 9, 24, 12, 0, 0, TimeSpan.Zero);
+
+        var result = new WebhookVerificationResult(true, null, providerTimestamp);
+        var existingCall = new WebhookVerificationResult(true, null);
+
+        result.ProviderTimestamp.Should().Be(providerTimestamp);
+        existingCall.ProviderTimestamp.Should().BeNull();
+    }
+
+    [Fact]
     public void PublicApi_DispatchAndStoreContractsUseCancellationAndResultShapes()
     {
         var dispatch = typeof(IWebhookDispatchProcessor).GetMethod(nameof(IWebhookDispatchProcessor.DispatchAsync));

@@ -191,6 +191,81 @@ public sealed class ExtractorTests
     }
 
     [Fact]
+    public async Task Extractors_WithPreCancelledToken_ThrowBeforeReadingHeadersOrParsingPayload()
+    {
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        var options = CreateOptions(p =>
+        {
+            p.EventIdHeaderName = "X-Event-ID";
+            p.EventTypeHeaderName = "X-Event-Type";
+        });
+        var context = new WebhookVerificationContext
+        {
+            Provider = ProviderName,
+            RawBody = Encoding.UTF8.GetBytes("{not-json"),
+            Headers = new Dictionary<string, IReadOnlyList<string>>
+            {
+                ["X-Event-ID"] = ["evt_cancelled"],
+                ["X-Event-Type"] = ["event.cancelled"]
+            }
+        };
+        var extractors = new IWebhookEventIdExtractor[]
+        {
+            new HeaderEventIdExtractor(options),
+            new JsonEventIdExtractor(),
+            new CompositeWebhookEventIdExtractor([new HeaderEventIdExtractor(options), new JsonEventIdExtractor()])
+        };
+        var eventTypeExtractors = new IWebhookEventTypeExtractor[]
+        {
+            new HeaderEventTypeExtractor(options),
+            new JsonEventTypeExtractor(),
+            new CompositeWebhookEventTypeExtractor([new HeaderEventTypeExtractor(options), new JsonEventTypeExtractor()])
+        };
+
+        foreach (var extractor in extractors)
+        {
+            var act = async () => await extractor.ExtractAsync(context, cancellation.Token);
+            var exception = await act.Should().ThrowAsync<OperationCanceledException>();
+            exception.Which.CancellationToken.Should().Be(cancellation.Token);
+        }
+
+        foreach (var extractor in eventTypeExtractors)
+        {
+            var act = async () => await extractor.ExtractAsync(context, cancellation.Token);
+            var exception = await act.Should().ThrowAsync<OperationCanceledException>();
+            exception.Which.CancellationToken.Should().Be(cancellation.Token);
+        }
+    }
+
+    [Fact]
+    public async Task CompositeExtractors_WithPreCancelledToken_DoNotInvokeDelegates()
+    {
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        var idProbe = new CancellationProbe();
+        var typeProbe = new CancellationProbe();
+        var idExtractor = new CompositeWebhookEventIdExtractor([idProbe]);
+        var typeExtractor = new CompositeWebhookEventTypeExtractor([typeProbe]);
+        var context = new WebhookVerificationContext
+        {
+            Provider = ProviderName,
+            RawBody = Encoding.UTF8.GetBytes("{}"),
+            Headers = new Dictionary<string, IReadOnlyList<string>>()
+        };
+
+        var idAct = async () => await idExtractor.ExtractAsync(context, cancellation.Token);
+        var typeAct = async () => await typeExtractor.ExtractAsync(context, cancellation.Token);
+
+        var idException = await idAct.Should().ThrowAsync<OperationCanceledException>();
+        var typeException = await typeAct.Should().ThrowAsync<OperationCanceledException>();
+        idException.Which.CancellationToken.Should().Be(cancellation.Token);
+        typeException.Which.CancellationToken.Should().Be(cancellation.Token);
+        idProbe.CallCount.Should().Be(0);
+        typeProbe.CallCount.Should().Be(0);
+    }
+
+    [Fact]
     public async Task CompositeWebhookEventTypeExtractor_FallsBackToJsonWhenHeaderAbsent()
     {
         var options = CreateOptions(p => p.EventTypeHeaderName = "X-Event-Type");
@@ -209,5 +284,18 @@ public sealed class ExtractorTests
 
         var result = await composite.ExtractAsync(context);
         result.Should().Be("order.fulfilled");
+    }
+
+    private sealed class CancellationProbe : IWebhookEventIdExtractor, IWebhookEventTypeExtractor
+    {
+        public int CallCount { get; private set; }
+
+        public ValueTask<string?> ExtractAsync(
+            WebhookVerificationContext context,
+            CancellationToken cancellationToken = default)
+        {
+            CallCount++;
+            return ValueTask.FromResult<string?>("unexpected");
+        }
     }
 }

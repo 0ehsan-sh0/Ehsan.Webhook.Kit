@@ -116,6 +116,7 @@ internal sealed class HmacSignatureVerifier : IWebhookSignatureVerifier
 
         int hashByteSize = sigOptions.Algorithm == WebhookHashAlgorithm.HmacSha512 ? 64 : 32;
         Span<byte> computedHash = stackalloc byte[hashByteSize];
+        var valid = false;
 
         foreach (var secret in secrets)
         {
@@ -139,13 +140,12 @@ internal sealed class HmacSignatureVerifier : IWebhookSignatureVerifier
                 throw new InvalidOperationException($"Unsupported algorithm '{sigOptions.Algorithm}'.");
             }
 
-            if (CryptographicOperations.FixedTimeEquals(computedHash, expectedBytes))
-            {
-                return ValueTask.FromResult(WebhookVerificationResult.Success());
-            }
+            valid |= CryptographicOperations.FixedTimeEquals(computedHash, expectedBytes);
         }
 
-        return ValueTask.FromResult(WebhookVerificationResult.Fail("Signature verification failed."));
+        return ValueTask.FromResult(valid
+            ? WebhookVerificationResult.Success()
+            : WebhookVerificationResult.Fail("Signature verification failed."));
     }
 
     private static string StripPrefix(string headerValue)

@@ -68,6 +68,11 @@ internal sealed class WebhookKitOptionsValidator : IValidateOptions<WebhookKitOp
             return ValidateOptionsResult.Fail("WebhookKit: Background RecoveryAge must be non-negative.");
         }
 
+        if (background.ShutdownDrainTimeout <= TimeSpan.Zero)
+        {
+            return ValidateOptionsResult.Fail("WebhookKit: Background ShutdownDrainTimeout must be positive.");
+        }
+
         if (background.Enabled && !options.Storage.PersistRawBody)
         {
             return ValidateOptionsResult.Fail("WebhookKit: Background processing requires raw body persistence.");

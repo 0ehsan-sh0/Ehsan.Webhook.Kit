@@ -20,7 +20,7 @@ builder.Services.AddWebhookKitAspNetCore();
 builder.Services.AddWebhookHandler<PaymentHandler>("payment.completed");
 ```
 
-`AddWebhookKit` registers `WebhookKitOptions`, startup validation, the default clock, the default in-memory store, the default bounded channel, extractors, verifiers, deserialization, handler registry, ingestion service, retry pipeline, and optional hosted worker. These default implementations are internal; consumers depend on the corresponding interfaces and can replace them through DI. The overload with no configuration action is valid when the application supplies its own services or only needs the defaults.
+`AddWebhookKit` registers `WebhookKitOptions`, startup validation, the default clock, the default in-memory store, the default bounded channel, extractors, verifiers, deserialization, handler registry, ingestion service, retry pipeline, and optional hosted worker. These default implementations are internal; consumers depend on the corresponding interfaces and can replace them through DI. A custom `IWebhookClock` registered before `AddWebhookKit` is preserved by the default `TryAddSingleton` registration. The overload with no configuration action is valid when the application supplies its own services or only needs the defaults.
 
 `AddWebhookKitAspNetCore` registers the body reader, endpoint service, response writer/filter, response formatter, MVC model binder, and the Minimal API/MVC adapters. `AddWebhookHandler<THandler>(string eventType)` registers a concrete scoped handler. The non-generic overload accepts a `Type` plus an event type.
 
@@ -65,13 +65,13 @@ The options validator runs through `ValidateOnStart`. It rejects non-positive bo
 - `Secret`: the current shared secret.
 - `AdditionalSecrets`: temporary rotation secrets checked after the current secret.
 
-For `RawBody`, the HMAC input is the exact request body bytes. For `TimestampPrefixedRawBody`, it is UTF-8 timestamp bytes, UTF-8 separator bytes, and the exact body bytes. Timestamp-prefixed input requires a configured timestamp header. The default HMAC verifier accepts common case-insensitive prefixes such as `sha256=`, `sha512=`, `v1=`, and `v0=` before the configured encoding. It compares decoded bytes with `CryptographicOperations.FixedTimeEquals`.
+For `RawBody`, the HMAC input is the exact request body bytes. For `TimestampPrefixedRawBody`, it is UTF-8 timestamp bytes, UTF-8 separator bytes, and the exact body bytes. Timestamp-prefixed input requires a configured timestamp header. The default HMAC verifier accepts common case-insensitive prefixes such as `sha256=`, `sha512=`, `v1=`, and `v0=` before the configured encoding. It evaluates every configured primary and rotation-secret comparison with `CryptographicOperations.FixedTimeEquals` before returning one generic result.
 
 Secret rotation is verification-side: a request signed with any configured current or additional secret is accepted. The secret value must come from configuration, environment variables, or a secret manager and must not be logged or placed in source.
 
 ### Timestamp and replay options
 
-`WebhookTimestampOptions` contains `HeaderName`, `Tolerance`, and `AllowMissing`. The verifier accepts Unix seconds, Unix milliseconds, and ISO-8601 values. It compares absolute clock skew with `IWebhookClock.UtcNow` and accepts the exact tolerance boundary.
+`WebhookTimestampOptions` contains `HeaderName`, `Tolerance`, and `AllowMissing`. The verifier accepts Unix seconds, Unix milliseconds, and ISO-8601 values. It compares absolute clock skew with `IWebhookClock.UtcNow` and accepts the exact tolerance boundary. On success, `WebhookVerificationResult.ProviderTimestamp` contains the exact parsed value; ingestion copies it to both `WebhookRecord.ProviderTimestamp` and `WebhookContext.ProviderTimestamp`.
 
 A provider without a usable timestamp must either configure an alternative replay signal outside this verifier or explicitly set `AllowMissing = true` after documenting the security tradeoff. `AllowMissing` permits an absent or blank header only; a malformed value is still rejected. Timestamp verification is separate from signature verification, and a valid signature does not bypass freshness validation.
 
@@ -155,7 +155,7 @@ MVC uses `[WebhookEndpoint(providerName)]`. Its `Mode` and `ProcessingMode` prop
 
 The default `IWebhookQueue` implementation is a bounded, in-process notification channel. Its `TryEnqueueAsync` method returns `false` when the bounded channel cannot accept a work item. The endpoint maps that result to `503`; the persisted record is not deleted.
 
-The store owns the delivery state machine. `TryClaimAsync` atomically claims `Received` records or expired-lease `Processing` records, increments `AttemptCount`, and installs `ProcessingLeaseOwner` and `ProcessingLeaseExpiresAt`. `ReleaseAsync`, `MarkProcessedAsync`, and `MarkFailedAsync` require the current owner. `GetRecoverableAsync` returns bounded waiting or expired-lease work. The default hosted worker owns polling, scope creation, claims, processing, retries, and terminal transitions.
+The store owns the delivery state machine. `TryClaimAsync` atomically claims `Received` records or expired-lease `Processing` records, increments `AttemptCount`, and installs `ProcessingLeaseOwner` and `ProcessingLeaseExpiresAt`. `ReleaseAsync`, `MarkProcessedAsync`, and `MarkFailedAsync` require the current owner. Synchronous and worker paths do not report processed or ignored success unless the store confirms the owned terminal transition; ignored transitions are re-read to verify `Ignored` status and cleared lease ownership. `GetRecoverableAsync` returns bounded waiting or expired-lease work. The default hosted worker owns polling, scope creation, claims, processing, retries, and terminal transitions.
 
 The defaults are:
 
@@ -167,8 +167,9 @@ The defaults are:
 | `Background.RecoveryBatchSize` | `100` |
 | `Background.LeaseDuration` | `2 minutes` |
 | `Background.RecoveryAge` | `30 seconds` |
+| `Background.ShutdownDrainTimeout` | `5 seconds` | Maximum bounded wait for active processor tasks during host shutdown. |
 
-The channel is a notification mechanism, not durable storage. Redis or EF persistence makes the record recoverable; it does not make the process-local channel durable.
+The channel is a notification mechanism, not durable storage. Redis or EF persistence makes the record recoverable; it does not make the process-local channel durable. During shutdown the worker waits for processor tasks for at most `ShutdownDrainTimeout`; if a handler remains uncooperative, the worker logs only `shutdown-drain-timeout` and allows host shutdown to proceed.
 
 ## Retry behavior
 
@@ -202,7 +203,7 @@ builder.Services.AddWebhookKit(options =>
 - `DeduplicationRetention = TimeSpan.FromDays(7)`.
 - `RecordRetention = TimeSpan.FromDays(30)`.
 
-The two TTLs are independent. Redis scripts atomically create the dedup marker, record, and recovery index, and state transitions use `KEEPTTL`. The key prefix validation and key hashing are part of the package boundary. Real Redis behavior remains an external validation item in this workspace.
+The two TTLs are independent. Redis scripts atomically create the dedup marker, record, and recovery index, and state transitions use `KEEPTTL`. The key prefix validation and key hashing are part of the package boundary. The committed standalone local gate executed the live store, TTL, stale-owner, and concurrency rows against a disposable Redis 7.4.5 service. Production, Redis Cluster, infrastructure, and external release validation remain pending.
 
 ### Entity Framework Core
 

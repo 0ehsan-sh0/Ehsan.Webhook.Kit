@@ -137,7 +137,7 @@ public interface IWebhookHandler<in TEvent>
 
 Register a concrete handler with `AddWebhookHandler<THandler>(eventType)`. WebhookKit resolves the handler from the current scope, deserializes `TEvent` with the configured `System.Text.Json` options, caches one successful payload per type in the context, and invokes matching handlers sequentially in registration order. The first handler failure stops the sequence.
 
-Use `context.Provider`, `context.EventId`, `context.EventType`, `context.WebhookId`, `context.CorrelationId`, `context.ReceivedAt`, and `context.Headers` for safe metadata. `Headers` is a detached `IReadOnlyDictionary<string, IReadOnlyList<string>>`; `CorrelationId` is non-null and receives a stable, atomically published generated fallback when no caller or ambient value is available. Use `context.GetPayload<T>()` inside application code. The context does not expose a public raw-body property; the pipeline owns raw bytes.
+Use `context.Provider`, `context.EventId`, `context.EventType`, `context.WebhookId`, `context.CorrelationId`, `context.ReceivedAt`, `context.ProviderTimestamp`, and `context.Headers` for safe metadata. `ProviderTimestamp` is the exact parsed provider timestamp when timestamp verification produced one. `Headers` is a detached `IReadOnlyDictionary<string, IReadOnlyList<string>>`; `CorrelationId` is non-null and receives a stable, atomically published generated fallback when no caller or ambient value is available. Use `context.GetPayload<T>()` inside application code. The context does not expose a public raw-body property; the pipeline owns raw bytes.
 
 ## Configuration
 
@@ -151,6 +151,7 @@ builder.Services.AddWebhookKit(options =>
     options.Storage.DiscardRawBodyAfterSuccessfulSync = true;
     options.Queue.Capacity = 1024;
     options.Background.Enabled = false;
+    options.Background.ShutdownDrainTimeout = TimeSpan.FromSeconds(5);
 
     options.AddProvider("payments", provider =>
     {
@@ -197,7 +198,7 @@ The important profile settings are:
 | `AllowBodyHashFallback` | Explicitly permits a deterministic body-hash key when no Event ID is available; defaults to false. |
 | `MaxRequestBodySizeBytes` | Per-provider body limit; otherwise the global limit is used. |
 
-`RawBody` signs only the body bytes. `TimestampPrefixedRawBody` signs the UTF-8 timestamp bytes, `TimestampSeparator`, and then the exact body bytes, so it requires a timestamp header. The verifier parses Unix seconds, Unix milliseconds, or ISO-8601 timestamps and rejects a value whose absolute skew is greater than the configured tolerance. A missing timestamp is rejected by default; `AllowMissing = true` is an explicit security tradeoff and does not make a malformed timestamp valid.
+`RawBody` signs only the body bytes. `TimestampPrefixedRawBody` signs the UTF-8 timestamp bytes, `TimestampSeparator`, and then the exact body bytes, so it requires a timestamp header. The verifier parses Unix seconds, Unix milliseconds, or ISO-8601 timestamps and rejects a value whose absolute skew is greater than the configured tolerance. On success, the exact parsed value is available as `WebhookVerificationResult.ProviderTimestamp` and is propagated to `WebhookRecord.ProviderTimestamp` and `WebhookContext.ProviderTimestamp`. A missing timestamp is rejected by default; `AllowMissing = true` is an explicit security tradeoff and does not make a malformed timestamp valid.
 
 The default global body limit is `1024 * 1024` bytes. The reader checks an advertised `Content-Length` first and bounds streamed reads to the limit plus one proof byte. Exceeding either global or provider limit returns `413 Payload Too Large` before the oversized body is retained.
 
@@ -303,6 +304,7 @@ builder.Services.AddWebhookKit(options =>
 {
     options.Background.Enabled = true;
     options.Background.WorkerConcurrency = 1;
+    options.Background.ShutdownDrainTimeout = TimeSpan.FromSeconds(5);
     options.AddProvider("payments", provider =>
     {
         provider.Signature.HeaderName = "X-Webhook-Signature";
@@ -321,9 +323,9 @@ app.Run();
 
 Asynchronous admission verifies the request, atomically persists the record, and attempts to enqueue a `WebhookWorkItem` before returning `202 Accepted`. The default queue capacity is `1024`; a full or unavailable queue returns `503 Service Unavailable` while the persisted record remains recoverable.
 
-The default `IWebhookQueue` is a bounded, in-process notification channel. It is not durable across a process restart and Redis persistence does not make this channel durable. The `IWebhookStore` is the authority for records, deduplication, claims, leases, terminal state, and recovery. The default worker periodically queries recoverable `Received` and expired-lease `Processing` records. Default recovery settings are a 30-second interval, 100-record batch, two-minute lease duration, and 30-second recovery age. Terminal records are never reclaimed.
+The default `IWebhookQueue` is a bounded, in-process notification channel. It is not durable across a process restart and Redis persistence does not make this channel durable. The `IWebhookStore` is the authority for records, deduplication, claims, leases, terminal state, and recovery. The default worker periodically queries recoverable `Received` and expired-lease `Processing` records. Default recovery settings are a 30-second interval, 100-record batch, two-minute lease duration, 30-second recovery age, and a five-second shutdown processor drain timeout. Terminal records are never reclaimed.
 
-A lease is a time-bounded owner token. Claims atomically move an eligible record to `Processing`, install the owner and expiry, and increment `AttemptCount`. A stale owner cannot release, complete, fail, or overwrite a newer owner. Cancellation releases a claim when possible. Configure lease duration above the maximum retry window for every provider; startup validation enforces that relationship.
+A lease is a time-bounded owner token. Claims atomically move an eligible record to `Processing`, install the owner and expiry, and increment `AttemptCount`. A stale owner cannot release, complete, fail, or overwrite a newer owner. Synchronous and worker terminal acknowledgements are emitted only after the store confirms the owned transition; ignored records are also re-read to confirm `Ignored` status and cleared lease ownership. Cancellation releases a claim when possible. During shutdown, the worker waits for active processor tasks for at most `ShutdownDrainTimeout`; an uncooperative handler produces only the safe `shutdown-drain-timeout` diagnostic and does not hold shutdown indefinitely. Configure lease duration above the maximum retry window for every provider; startup validation enforces that relationship.
 
 ## In-memory storage
 
@@ -354,7 +356,7 @@ The package also accepts an already-created `IConnectionMultiplexer`. The string
 
 Redis creation atomically writes the deduplication marker and full record. The defaults are exactly seven days for deduplication retention and thirty days for full-record retention; state transitions preserve the record TTL independently. Redis keys hash the provider-scoped identity rather than exposing provider IDs or body hashes in key names.
 
-**Redis runtime caveat:** the Redis Release build and startup wiring were verified, but live Redis runtime remains unexecuted in this workspace. No real Redis service, Lua execution, `cjson`, `KEEPTTL`, TTL precision, keyspace, or Redis Cluster behavior was exercised here. Use a real service and run the live concurrency/store checks before production rollout. `abortConnect=true` can prove lazy startup wiring only; it does not make a live request valid.
+**Redis runtime evidence:** the committed standalone local Redis gate ran successfully against a disposable Redis 7.4.5 service, including all live store rows, 10/100/1,000-way concurrency checks, stale-owner protection, TTL behavior, and the Redis sample `202/202/401` matrix. This is not production, Redis Cluster, or deployment-infrastructure validation: cluster slot co-location, managed-service identity/TLS/network policy, failover, capacity, backup, monitoring, and organizational controls remain deployment gates. `abortConnect=true` still proves lazy startup wiring only and does not make a live request valid.
 
 ## Entity Framework Core
 
@@ -460,11 +462,11 @@ Successful `200` and `202` acknowledgements have no response body. Error respons
 Read [Docs/security-audit.md](Docs/security-audit.md) before production use. The important boundary is:
 
 - The raw body is captured before deserialization and remains inside the ingestion/processing boundary; handlers receive metadata, headers, and typed payloads rather than a public raw-body property.
-- HMAC comparison uses `CryptographicOperations.FixedTimeEquals`; secrets, signatures, payloads, authorization headers, parser details, and exception messages are not logged or returned by the delivered safe surfaces.
+- HMAC comparison uses `CryptographicOperations.FixedTimeEquals` for every configured primary and rotation secret before returning a generic result; secrets, signatures, payloads, authorization headers, parser details, and exception messages are not logged or returned by the delivered safe surfaces.
 - Timestamp freshness and body-size limits are enforced before handler execution.
 - Redis and EF records can persist raw bodies and captured headers, including sensitive values. Encrypt, restrict, redact, and retain them according to application policy.
 - The in-process asynchronous queue is not durable across restarts. A persisted record can be recovered, but a lost notification is not a durable broker guarantee.
-- Real Redis live runtime remains unexecuted in this workspace. The Redis package has deterministic adapter evidence and an explicit external validation gap.
+- The committed standalone local Redis gate passed, but GitHub-hosted CI, production/cluster/infrastructure validation, and external release configuration remain pending. The local gate is not external certification.
 - The audit is an internal source and executable-test review, not an independent penetration test or security certification.
 
 Never put a production secret in source, a committed `.env` file, a request file, a log example, or a diagnostic payload. Use configuration providers, environment variables, or a secret manager.
@@ -497,7 +499,7 @@ dotnet test "Ehsan.Webhook.Kit.slnx" -c Release
 dotnet format "Ehsan.Webhook.Kit.slnx" --verify-no-changes --no-restore
 ```
 
-There is no separate repository lint script; the Release build runs the configured .NET analyzers with warnings treated as errors. The Redis real-service concurrency test is skipped when `WEBHOOKKIT_REDIS_CONNECTION` is not configured; the deterministic Redis tests still run.
+There is no separate repository lint script; the Release build runs the configured .NET analyzers with warnings treated as errors. The Redis real-service tests are opt-in and are skipped when `WEBHOOKKIT_REDIS_CONNECTION` is not configured; the committed standalone local gate separately records their successful execution.
 
 Build each sample explicitly:
 

@@ -25,6 +25,7 @@ public sealed class CompositeWebhookEventIdExtractor : IWebhookEventIdExtractor
     public async ValueTask<string?> ExtractAsync(WebhookVerificationContext context, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(context);
+        cancellationToken.ThrowIfCancellationRequested();
 
         foreach (var extractor in _extractors)
         {

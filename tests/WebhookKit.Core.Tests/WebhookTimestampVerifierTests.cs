@@ -54,6 +54,28 @@ public sealed class WebhookTimestampVerifierTests
     }
 
     [Fact]
+    public async Task VerifyAsync_ValidTimestamp_ReturnsExactParsedProviderTimestamp()
+    {
+        var (verifier, _) = CreateVerifier();
+        const long epochSeconds = 1_790_078_280L;
+        var expected = DateTimeOffset.FromUnixTimeSeconds(epochSeconds);
+        var context = new WebhookVerificationContext
+        {
+            Provider = ProviderName,
+            RawBody = [],
+            Headers = new Dictionary<string, IReadOnlyList<string>>
+            {
+                [HeaderName] = [epochSeconds.ToString(CultureInfo.InvariantCulture)]
+            }
+        };
+
+        var result = await verifier.VerifyAsync(context);
+
+        result.IsValid.Should().BeTrue();
+        result.ProviderTimestamp.Should().Be(expected);
+    }
+
+    [Fact]
     public async Task VerifyAsync_UnixEpochMilliseconds_WithinTolerance_Succeeds()
     {
         var (verifier, clock) = CreateVerifier();

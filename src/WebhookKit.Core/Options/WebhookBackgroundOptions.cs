@@ -20,4 +20,7 @@ public sealed class WebhookBackgroundOptions
 
     /// <summary>Minimum age of an expired lease before recovery considers it.</summary>
     public TimeSpan RecoveryAge { get; set; } = TimeSpan.FromSeconds(30);
+
+    /// <summary>Maximum time allowed for active processor tasks to finish during shutdown.</summary>
+    public TimeSpan ShutdownDrainTimeout { get; set; } = TimeSpan.FromSeconds(5);
 }

@@ -29,6 +29,7 @@ public sealed class JsonEventTypeExtractor : IWebhookEventTypeExtractor
     public ValueTask<string?> ExtractAsync(WebhookVerificationContext context, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(context);
+        cancellationToken.ThrowIfCancellationRequested();
 
         if (context.RawBody == null || context.RawBody.Length == 0)
         {

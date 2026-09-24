@@ -436,6 +436,162 @@ public sealed class WebhookBackgroundWorkerTests
         maxActive.Should().Be(4);
     }
 
+    [Theory]
+    [InlineData(WebhookDispatchStatus.Processed)]
+    [InlineData(WebhookDispatchStatus.Failed)]
+    public async Task StartAsync_WhenLeaseExpiresBeforeOwnedTerminalTransition_LogsStatusUpdateFailureWithoutMutatingReplacementOwner(
+        WebhookDispatchStatus dispatchStatus)
+    {
+        var clock = new FakeWebhookClock(FixedNow);
+        var store = CreateStore(clock);
+        var options = CreateOptions();
+        var logs = new CapturingLogger<WebhookBackgroundWorker>();
+        var replacementClaimed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var harness = await WorkerHarness.StartAsync(options, store, clock: clock, dispatch: async (context, _) =>
+        {
+            clock.Advance(TimeSpan.FromMinutes(3));
+            var claimed = await store.Inner.TryClaimAsync(
+                context.WebhookId,
+                "replacement-worker",
+                TimeSpan.FromMinutes(5),
+                CancellationToken.None);
+            replacementClaimed.TrySetResult(claimed);
+            return dispatchStatus == WebhookDispatchStatus.Processed
+                ? WebhookDispatchResult.Processed()
+                : WebhookDispatchResult.Failed(WebhookDispatchFailureKind.Handler, "handler-failed");
+        }, logger: logs);
+        var record = CreateRecord($"webhook-stale-{dispatchStatus}");
+        await store.Inner.TryCreateAsync(record);
+        await harness.Queue.TryEnqueueAsync(new WebhookWorkItem(record.Id, record.Provider));
+
+        (await replacementClaimed.Task.WaitAsync(TestTimeout)).Should().BeTrue();
+        await store.TerminalTransitionRejected.Task.WaitAsync(TestTimeout);
+        using var stopCancellation = new CancellationTokenSource(TestTimeout);
+        await harness.Worker.StopAsync(stopCancellation.Token);
+
+        var stored = await store.GetByWebhookIdAsync(record.Id);
+        stored!.Status.Should().Be(WebhookProcessingStatus.Processing);
+        stored.ProcessingLeaseOwner.Should().Be("replacement-worker");
+        stored.AttemptCount.Should().Be(2);
+        logs.Entries.Should().Contain(entry =>
+            entry.EventId == 1808 && Equals(entry.Get("FailureCode"), "status-update-failed"));
+    }
+
+    [Fact]
+    public async Task StartAsync_WhenLeaseExpiresBeforeIgnoredTransition_LogsStatusUpdateFailureWithoutClaimingIgnoredSuccess()
+    {
+        var clock = new FakeWebhookClock(FixedNow);
+        var store = CreateStore(clock);
+        var options = CreateOptions();
+        var logs = new CapturingLogger<WebhookBackgroundWorker>();
+        var replacementClaimed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var harness = await WorkerHarness.StartAsync(options, store, clock: clock, dispatch: async (context, _) =>
+        {
+            clock.Advance(TimeSpan.FromMinutes(3));
+            var claimed = await store.Inner.TryClaimAsync(
+                context.WebhookId,
+                "replacement-worker",
+                TimeSpan.FromMinutes(5),
+                CancellationToken.None);
+            replacementClaimed.TrySetResult(claimed);
+            return WebhookDispatchResult.Ignored();
+        }, logger: logs);
+        var record = CreateRecord("webhook-stale-ignored");
+        await store.Inner.TryCreateAsync(record);
+        await harness.Queue.TryEnqueueAsync(new WebhookWorkItem(record.Id, record.Provider));
+
+        (await replacementClaimed.Task.WaitAsync(TestTimeout)).Should().BeTrue();
+        await store.Ignored.Task.WaitAsync(TestTimeout);
+        using var stopCancellation = new CancellationTokenSource(TestTimeout);
+        await harness.Worker.StopAsync(stopCancellation.Token);
+
+        var stored = await store.GetByWebhookIdAsync(record.Id);
+        stored!.Status.Should().Be(WebhookProcessingStatus.Processing);
+        stored.ProcessingLeaseOwner.Should().Be("replacement-worker");
+        stored.AttemptCount.Should().Be(2);
+        logs.Entries.Should().Contain(entry =>
+            entry.EventId == 1808 && Equals(entry.Get("FailureCode"), "status-update-failed"));
+        logs.Entries.Should().NotContain(entry => entry.EventId == 1805);
+    }
+
+    [Fact]
+    public async Task StopAsync_WhenProcessorExceedsShutdownDrainTimeout_LogsOnlySafeTimeoutCode()
+    {
+        var store = CreateStore();
+        var options = CreateOptions(shutdownDrainTimeout: TimeSpan.FromMilliseconds(20));
+        var logs = new CapturingLogger<WebhookBackgroundWorker>();
+        var started = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseHandler = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var harness = await WorkerHarness.StartAsync(options, store, dispatch: async (_, token) =>
+        {
+            started.TrySetResult(true);
+            await releaseHandler.Task;
+            token.ThrowIfCancellationRequested();
+            return WebhookDispatchResult.Processed();
+        }, logger: logs);
+        var record = CreateRecord("webhook-shutdown-timeout");
+        await store.Inner.TryCreateAsync(record);
+        await harness.Queue.TryEnqueueAsync(new WebhookWorkItem(record.Id, record.Provider));
+        await started.Task.WaitAsync(TestTimeout);
+
+        try
+        {
+            using var stopCancellation = new CancellationTokenSource(TestTimeout);
+            var stop = harness.Worker.StopAsync(stopCancellation.Token);
+
+            await stop.WaitAsync(TestTimeout);
+            var timeoutLog = logs.Entries.Should().ContainSingle(entry =>
+                entry.EventId == 1810 && Equals(entry.Get("FailureCode"), "shutdown-drain-timeout")).Which;
+            timeoutLog.Text.Should().Be("Webhook background shutdown drain timed out. FailureCode=shutdown-drain-timeout");
+        }
+        finally
+        {
+            releaseHandler.TrySetResult(true);
+            await store.Released.Task.WaitAsync(TestTimeout);
+        }
+    }
+
+    [Fact]
+    public async Task StopAsync_WhenActiveHandlerObservesCancellation_WaitsForProcessorCompletionBeforeReturning()
+    {
+        var store = CreateStore();
+        var options = CreateOptions();
+        var started = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cancellationObserved = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseHandler = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var handlerCompleted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var harness = await WorkerHarness.StartAsync(options, store, dispatch: async (_, token) =>
+        {
+            using var registration = token.Register(() => cancellationObserved.TrySetResult(true));
+            started.TrySetResult(true);
+            await releaseHandler.Task;
+            handlerCompleted.TrySetResult(true);
+            token.ThrowIfCancellationRequested();
+            return WebhookDispatchResult.Processed();
+        });
+        var record = CreateRecord("webhook-drain-cancellation");
+        await store.Inner.TryCreateAsync(record);
+        await harness.Queue.TryEnqueueAsync(new WebhookWorkItem(record.Id, record.Provider));
+        await started.Task.WaitAsync(TestTimeout);
+
+        try
+        {
+            using var stopCancellation = new CancellationTokenSource(TestTimeout);
+            var stop = harness.Worker.StopAsync(stopCancellation.Token);
+            await cancellationObserved.Task.WaitAsync(TestTimeout);
+
+            stop.IsCompleted.Should().BeFalse();
+            releaseHandler.TrySetResult(true);
+            await handlerCompleted.Task.WaitAsync(TestTimeout);
+            await store.Released.Task.WaitAsync(TestTimeout);
+            await stop.WaitAsync(TestTimeout);
+        }
+        finally
+        {
+            releaseHandler.TrySetResult(true);
+        }
+    }
+
     [Fact]
     public async Task StartAsync_WhenHostIsCancelled_DoesNotMarkCancellationAsHandlerFailure()
     {
@@ -524,6 +680,7 @@ public sealed class WebhookBackgroundWorkerTests
         options.Background.RecoveryInterval.Should().BeGreaterThan(TimeSpan.Zero);
         options.Background.RecoveryBatchSize.Should().BeGreaterThan(0);
         options.Background.LeaseDuration.Should().BeGreaterThan(TimeSpan.Zero);
+        options.Background.ShutdownDrainTimeout.Should().BeGreaterThan(TimeSpan.Zero);
         options.Background.RecoveryAge.Should().BeGreaterThanOrEqualTo(TimeSpan.Zero);
         new WebhookKitOptionsValidator().Validate(null, options).Succeeded.Should().BeTrue();
     }
@@ -531,7 +688,12 @@ public sealed class WebhookBackgroundWorkerTests
     [Fact]
     public void Validator_RejectsInvalidBackgroundOptions()
     {
-        var options = CreateOptions(workerConcurrency: 0, recoveryInterval: TimeSpan.Zero, recoveryBatchSize: 0, leaseDuration: TimeSpan.Zero);
+        var options = CreateOptions(
+            workerConcurrency: 0,
+            recoveryInterval: TimeSpan.Zero,
+            recoveryBatchSize: 0,
+            leaseDuration: TimeSpan.Zero,
+            shutdownDrainTimeout: TimeSpan.Zero);
         new WebhookKitOptionsValidator().Validate(null, options).Succeeded.Should().BeFalse();
     }
 
@@ -576,7 +738,8 @@ public sealed class WebhookBackgroundWorkerTests
         TimeSpan? recoveryInterval = null,
         int recoveryBatchSize = 32,
         TimeSpan? leaseDuration = null,
-        int queueCapacity = 8)
+        int queueCapacity = 8,
+        TimeSpan? shutdownDrainTimeout = null)
     {
         return new WebhookKitOptions
         {
@@ -588,7 +751,8 @@ public sealed class WebhookBackgroundWorkerTests
                 RecoveryInterval = recoveryInterval ?? TimeSpan.FromMinutes(1),
                 RecoveryBatchSize = recoveryBatchSize,
                 LeaseDuration = leaseDuration ?? TimeSpan.FromMinutes(2),
-                RecoveryAge = TimeSpan.FromSeconds(30)
+                RecoveryAge = TimeSpan.FromSeconds(30),
+                ShutdownDrainTimeout = shutdownDrainTimeout ?? TimeSpan.FromSeconds(5)
             }
         };
     }
@@ -754,6 +918,8 @@ public sealed class WebhookBackgroundWorkerTests
 
         public TaskCompletionSource<bool> Released { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+        public TaskCompletionSource<bool> TerminalTransitionRejected { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
         private readonly Channel<int> _recoveryCalls = Channel.CreateUnbounded<int>();
         private readonly Channel<string> _processedIds = Channel.CreateUnbounded<string>(new UnboundedChannelOptions
         {
@@ -822,6 +988,10 @@ public sealed class WebhookBackgroundWorkerTests
                 Processed.TrySetResult(true);
                 _processedIds.Writer.TryWrite(webhookId);
             }
+            else
+            {
+                TerminalTransitionRejected.TrySetResult(true);
+            }
 
             return result;
         }
@@ -832,6 +1002,10 @@ public sealed class WebhookBackgroundWorkerTests
             if (result)
             {
                 Failed.TrySetResult(true);
+            }
+            else
+            {
+                TerminalTransitionRejected.TrySetResult(true);
             }
 
             return result;

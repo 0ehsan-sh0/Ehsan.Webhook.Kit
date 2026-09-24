@@ -125,6 +125,11 @@ public sealed class WebhookContext
             _payloadCache.TryRemove(payloadType, out _);
             throw;
         }
+        catch (OperationCanceledException)
+        {
+            _payloadCache.TryRemove(payloadType, out _);
+            throw;
+        }
         catch
         {
             _payloadCache.TryRemove(payloadType, out _);

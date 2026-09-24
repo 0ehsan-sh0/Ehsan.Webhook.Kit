@@ -18,6 +18,18 @@ public sealed class WebhookVerificationTests
     }
 
     [Fact]
+    public void VerificationResult_ProviderTimestampIsAdditiveAndDefaultsToNull()
+    {
+        var providerTimestamp = new DateTimeOffset(2026, 9, 24, 12, 0, 0, TimeSpan.Zero);
+        var timestampResult = new WebhookVerificationResult(true, null, providerTimestamp);
+        var existingResult = new WebhookVerificationResult(true, null);
+
+        timestampResult.ProviderTimestamp.Should().Be(providerTimestamp);
+        existingResult.ProviderTimestamp.Should().BeNull();
+        WebhookVerificationResult.Success().ProviderTimestamp.Should().BeNull();
+    }
+
+    [Fact]
     public void Fail_RequiresReason()
     {
         var result = WebhookVerificationResult.Fail("invalid-signature");

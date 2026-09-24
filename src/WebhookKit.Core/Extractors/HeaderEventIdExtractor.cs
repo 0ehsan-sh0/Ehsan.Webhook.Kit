@@ -26,6 +26,7 @@ public sealed class HeaderEventIdExtractor : IWebhookEventIdExtractor
     public ValueTask<string?> ExtractAsync(WebhookVerificationContext context, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(context);
+        cancellationToken.ThrowIfCancellationRequested();
 
         if (!_options.Value.Providers.TryGetValue(context.Provider, out var providerOptions) ||
             string.IsNullOrWhiteSpace(providerOptions.EventIdHeaderName))

@@ -96,6 +96,6 @@ internal sealed class WebhookTimestampVerifier : IWebhookTimestampVerifier
                 WebhookVerificationResult.Fail($"Timestamp expired or skewed beyond tolerance window ({skew.TotalSeconds:F0}s > {timestampOptions.Tolerance.TotalSeconds:F0}s)."));
         }
 
-        return ValueTask.FromResult(WebhookVerificationResult.Success());
+        return ValueTask.FromResult(new WebhookVerificationResult(true, null, timestamp));
     }
 }

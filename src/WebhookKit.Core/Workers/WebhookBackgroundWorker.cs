@@ -20,6 +20,7 @@ internal sealed class WebhookBackgroundWorker : BackgroundService
     private const string PayloadFailureCode = "payload-invalid";
     private const string RawBodyMissingFailureCode = "raw-body-missing";
     private const string WorkerFailureCode = "worker-failed";
+    private const string ShutdownDrainTimeoutCode = "shutdown-drain-timeout";
     private readonly IWebhookQueue _queue;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IOptions<WebhookKitOptions> _options;
@@ -89,6 +90,7 @@ internal sealed class WebhookBackgroundWorker : BackgroundService
         var processorTasks = Enumerable.Range(0, concurrency)
             .Select(_ => ProcessInternalQueueAsync(workChannel.Reader, stoppingToken))
             .ToArray();
+        var processorTasksAwaited = false;
 
         try
         {
@@ -97,7 +99,8 @@ internal sealed class WebhookBackgroundWorker : BackgroundService
             await recoveryTask.ConfigureAwait(false);
             if (!stoppingToken.IsCancellationRequested)
             {
-                await Task.WhenAll(processorTasks).WaitAsync(stoppingToken).ConfigureAwait(false);
+                await Task.WhenAll(processorTasks).ConfigureAwait(false);
+                processorTasksAwaited = true;
             }
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -106,6 +109,13 @@ internal sealed class WebhookBackgroundWorker : BackgroundService
         finally
         {
             workChannel.Writer.TryComplete();
+            if (!processorTasksAwaited)
+            {
+                await DrainProcessorTasksAsync(
+                    processorTasks,
+                    settings.Background.ShutdownDrainTimeout).ConfigureAwait(false);
+            }
+
             await CompleteExternalQueueOnceAsync().ConfigureAwait(false);
         }
     }
@@ -454,7 +464,7 @@ internal sealed class WebhookBackgroundWorker : BackgroundService
         await store.UpdateAsync(record, cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task MarkProcessedAsync(
+    private async Task<bool> MarkProcessedAsync(
         IWebhookStore store,
         WebhookRecord record,
         string? traceId,
@@ -471,7 +481,8 @@ internal sealed class WebhookBackgroundWorker : BackgroundService
                 cancellationToken).ConfigureAwait(false);
             if (!marked)
             {
-                return;
+                LogStatusUpdateFailure(record, traceId, correlationId, attempt);
+                return false;
             }
 
             WebhookLogMessages.Processed(
@@ -484,6 +495,7 @@ internal sealed class WebhookBackgroundWorker : BackgroundService
                 attempt,
                 traceId,
                 correlationId);
+            return true;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -492,10 +504,11 @@ internal sealed class WebhookBackgroundWorker : BackgroundService
         catch
         {
             LogStatusUpdateFailure(record, traceId, correlationId, attempt);
+            return false;
         }
     }
 
-    private async Task MarkIgnoredAsync(
+    private async Task<bool> MarkIgnoredAsync(
         IWebhookStore store,
         WebhookRecord record,
         string? traceId,
@@ -510,11 +523,31 @@ internal sealed class WebhookBackgroundWorker : BackgroundService
             record.FailedAt = null;
             record.FailureReason = null;
             record.FailureCode = null;
+            record.ProcessingLeaseOwner = _leaseOwner;
             await store.UpdateAsync(record, cancellationToken).ConfigureAwait(false);
+
+            var ignoredRecord = await store.GetByWebhookIdAsync(record.Id, cancellationToken).ConfigureAwait(false);
+            if (ignoredRecord is null ||
+                ignoredRecord.Status != WebhookProcessingStatus.Ignored ||
+                !string.Equals(ignoredRecord.ProcessingLeaseOwner, _leaseOwner, StringComparison.Ordinal))
+            {
+                LogStatusUpdateFailure(record, traceId, correlationId, attempt);
+                return false;
+            }
 
             record.ProcessingLeaseOwner = null;
             record.ProcessingLeaseExpiresAt = null;
             await store.UpdateAsync(record, cancellationToken).ConfigureAwait(false);
+            var persistedRecord = await store.GetByWebhookIdAsync(record.Id, cancellationToken).ConfigureAwait(false);
+            if (persistedRecord is null ||
+                persistedRecord.Status != WebhookProcessingStatus.Ignored ||
+                persistedRecord.ProcessingLeaseOwner is not null ||
+                persistedRecord.ProcessingLeaseExpiresAt is not null)
+            {
+                LogStatusUpdateFailure(record, traceId, correlationId, attempt);
+                return false;
+            }
+
             WebhookLogMessages.Ignored(
                 _logger,
                 record.Id,
@@ -525,6 +558,7 @@ internal sealed class WebhookBackgroundWorker : BackgroundService
                 attempt,
                 traceId,
                 correlationId);
+            return true;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -533,10 +567,11 @@ internal sealed class WebhookBackgroundWorker : BackgroundService
         catch
         {
             LogStatusUpdateFailure(record, traceId, correlationId, attempt);
+            return false;
         }
     }
 
-    private async Task MarkFailedAsync(
+    private async Task<bool> MarkFailedAsync(
         IWebhookStore store,
         WebhookRecord record,
         string failureCode,
@@ -555,7 +590,8 @@ internal sealed class WebhookBackgroundWorker : BackgroundService
                 cancellationToken).ConfigureAwait(false);
             if (!marked)
             {
-                return;
+                LogStatusUpdateFailure(record, traceId, correlationId, attempt);
+                return false;
             }
 
             WebhookLogMessages.Failed(
@@ -569,6 +605,7 @@ internal sealed class WebhookBackgroundWorker : BackgroundService
                 traceId,
                 correlationId,
                 failureCode);
+            return true;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -577,6 +614,7 @@ internal sealed class WebhookBackgroundWorker : BackgroundService
         catch
         {
             LogStatusUpdateFailure(record, traceId, correlationId, attempt);
+            return false;
         }
     }
 
@@ -704,6 +742,18 @@ internal sealed class WebhookBackgroundWorker : BackgroundService
         lock (_scheduledGate)
         {
             _scheduledItems.Remove(webhookId);
+        }
+    }
+
+    private async Task DrainProcessorTasksAsync(Task[] processorTasks, TimeSpan timeout)
+    {
+        try
+        {
+            await Task.WhenAll(processorTasks).WaitAsync(timeout).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            WebhookLogMessages.ShutdownDrainTimeout(_logger, ShutdownDrainTimeoutCode);
         }
     }
 

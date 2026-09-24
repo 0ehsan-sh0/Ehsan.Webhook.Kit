@@ -115,4 +115,7 @@ internal static partial class WebhookLogMessages
         string? traceId,
         string? correlationId,
         string? failureCode);
+
+    [LoggerMessage(EventId = 1810, Level = LogLevel.Warning, Message = "Webhook background shutdown drain timed out. FailureCode={FailureCode}")]
+    public static partial void ShutdownDrainTimeout(ILogger logger, string failureCode);
 }

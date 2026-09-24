@@ -1,6 +1,6 @@
 # WebhookKit verification notes
 
-This document records the verification boundary for the delivered user documentation. It distinguishes executable evidence from external-service evidence that was not available in this workspace.
+This document records the verification boundary for the delivered user documentation. It distinguishes deterministic executable evidence, the committed standalone local Redis gate, and external validation that remains pending.
 
 ## Verification commands
 
@@ -26,15 +26,22 @@ The repository has no separate markdown or lint command. Deterministic local-lin
 
 ## Fresh local results
 
-The following commands were run from the worktree on 2026-09-24 after the Task 34 public API review:
+The following commands were run from the worktree on 2026-09-24 after the final review fix wave:
 
 - Solution Release build: succeeded with 0 warnings and 0 errors.
-- Solution Release tests: 494 passed, 0 failed, and 1 expected real-service Redis skip. Per-project counts were Abstractions 21, Core 270, ASP.NET Core 133, EF Core 25, Integration 19, and Redis 26.
-- Solution Debug build and tests: succeeded with 0 warnings, 0 errors, 494 passed, and 1 expected Redis skip.
+- Solution Release tests: 512 passed, 0 failed, and 6 expected opt-in live-Redis skips. Per-project counts were Abstractions 23, Core 285, ASP.NET Core 133, EF Core 25, Integration 20, and Redis 26 passing.
+- The first full Release test run exposed one pre-existing test assertion that contradicted the new unchanged-cancellation contract; the corrected focused rows passed 2/2 and the full Release rerun passed as recorded above.
+- Solution Debug build and tests: succeeded with 0 warnings, 0 errors, 512 passed, and 6 expected opt-in Redis skips.
 - Minimal API, MVC, Redis, and EF Core sample Release builds: each succeeded with 0 warnings and 0 errors.
 - `dotnet format "Ehsan.Webhook.Kit.slnx" --verify-no-changes --no-restore --verbosity minimal`: exit 0 with no reported changes.
 - `scripts\validate-packages.ps1 -Configuration Release`: passed and inspected six packages.
 - Reflection inventory after the review: Abstractions 23, Core 33, ASP.NET Core 16, Redis 2, EF Core 4, and Testing 6 exported types (84 total; 106 before the review).
+
+## Committed standalone local Redis gate
+
+The Task 36 candidate-source gate ran with `WEBHOOKKIT_REDIS_CONNECTION` scoped to child test/package processes and a disposable Redis 7.4.5 service. The successful recorded run completed 502 tests with 0 failures and 0 skips, including all five live store rows and the three 10/100/1,000 concurrency rows. The Redis sample returned `202/202/401` for valid, duplicate, and tampered requests. This evidence covers standalone local runtime behavior, not production, Redis Cluster, managed-service, deployment, or infrastructure validation.
+
+The separately recorded no-environment run completed 494 tests with 0 failures and exactly 6 opt-in live-Redis skips. GitHub-hosted CI, production/cluster/infrastructure validation, and external release configuration remain pending; no external certification is claimed.
 
 ## Documentation API cross-check
 
@@ -60,7 +67,7 @@ The following commands were run from the worktree on 2026-09-24 after the Task 3
 | Public API inventory and package boundary | `Docs/adr/0013-public-api-review.md` and `tests/WebhookKit.IntegrationTests/PublicApiTests.cs` |
 | Package/project names | `src/*/*.csproj`, `samples/*/*.csproj`, and `Ehsan.Webhook.Kit.slnx` |
 
-The focused API test directly references all six source projects and passed 4/4. The reflection inventory passed with 84 exported types after review, down from 106 before review.
+The focused API test directly references all six source projects and passed 5/5. The reflection inventory passed with 84 exported types after review, down from 106 before review.
 
 ## Code-block verification
 
@@ -91,14 +98,14 @@ The sample README run commands, environment variables, ports, and request-file b
 
 The security evidence is recorded in [security-audit.md](security-audit.md). The following boundaries remain explicit:
 
-1. Real Redis runtime remains unexecuted in this workspace. The Redis test suite uses a deterministic stateful adapter for its local coverage, and the real-service test is skipped when `WEBHOOKKIT_REDIS_CONNECTION` is absent. Lua, `cjson`, `KEEPTTL`, expiration precision, keyspace behavior, and Cluster co-location require a real Redis validation run.
+1. The committed standalone local Redis gate passed all opt-in live rows. Redis Cluster slot co-location, managed-service identity/TLS/network policy, failover, production capacity, backup/monitoring, and deployment infrastructure remain pending. A normal run without `WEBHOOKKIT_REDIS_CONNECTION` still skips only the opt-in live rows while running deterministic tests.
 2. The in-process queue is bounded and non-durable across process restarts. The store is the recovery authority, not the channel.
 3. Redis and EF persistence can retain raw bodies and captured headers, including sensitive values. Encryption, access control, retention, backup protection, and redaction remain deployment responsibilities.
 4. The internal audit is not an external penetration test, formal assurance review, or security certification.
 
 ## Roadmap consistency
 
-The dashboard at `Docs/tasks/index.html` records 34 complete tasks and 3 pending tasks. Task detail pages use the same status for Tasks 01–34 and Tasks 35–37. Tasks 01–09 are supported by the implemented foundations, tests, accepted ADRs, and the delivered ADR 0010 production signing/replay behavior. Tasks 10–29 are supported by their committed verification reports. Task 30 is supported by this documentation verification. Tasks 31–33 are supported by their committed package, packing, and CI evidence. Task 34 is supported by ADR 0013, the focused API test, the six-package validator, and the current build/test evidence. Tasks 35–37 remain pending; no benchmark, release-candidate, external-publication, or remote CI execution is inferred.
+The dashboard at `Docs/tasks/index.html` records the delivered benchmark, release-candidate, and external-handoff work as complete. The implementation-plan checklist remains unchanged. GitHub-hosted CI execution, production/cluster/infrastructure validation, external publication, and protected external release configuration remain pending and are not inferred from local evidence.
 
 ## Self-review checklist
 

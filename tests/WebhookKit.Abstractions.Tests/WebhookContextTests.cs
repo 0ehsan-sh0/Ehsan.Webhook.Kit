@@ -145,6 +145,31 @@ public sealed class WebhookContextTests
     }
 
     [Fact]
+    public void GetPayload_WhenDeserializerCancels_RethrowsSameExceptionAndDoesNotCacheFailure()
+    {
+        var cancellationException = new OperationCanceledException("deserializer cancelled");
+        var attempts = 0;
+        var deserializer = new FakeWebhookDeserializer((_, _) =>
+        {
+            if (Interlocked.Increment(ref attempts) == 1)
+            {
+                throw cancellationException;
+            }
+
+            return new FirstPayload(2);
+        });
+        var context = CreateContext(deserializer);
+
+        var act = () => context.GetPayload<FirstPayload>();
+        var thrown = act.Should().ThrowExactly<OperationCanceledException>().Which;
+        var payload = context.GetPayload<FirstPayload>();
+
+        thrown.Should().BeSameAs(cancellationException);
+        payload.Value.Should().Be(2);
+        deserializer.CallCount.Should().Be(2);
+    }
+
+    [Fact]
     public void GetPayload_WhenDeserializationFails_ThrowsOnlyFixedSafeException_AndDoesNotCacheFailure()
     {
         var attempts = 0;

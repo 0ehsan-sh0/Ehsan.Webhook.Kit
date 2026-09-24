@@ -409,7 +409,16 @@ public sealed class WebhookIngestionService
                 if (ingestionStatus == WebhookIngestionStatus.Processed)
                 {
                     var processedAt = _clock.UtcNow;
-                    await _store.MarkProcessedAsync(record.Id, leaseOwner, processedAt, cancellationToken).ConfigureAwait(false);
+                    var marked = await _store.MarkProcessedAsync(
+                        record.Id,
+                        leaseOwner,
+                        processedAt,
+                        cancellationToken).ConfigureAwait(false);
+                    if (!marked)
+                    {
+                        return CreateStatusUpdateFailure(activity, record, traceId, correlationId);
+                    }
+
                     record.Status = WebhookProcessingStatus.Processed;
                     record.ProcessedAt = processedAt;
                     record.ProcessingLeaseOwner = null;
@@ -427,13 +436,27 @@ public sealed class WebhookIngestionService
                         record.RawBody = null;
                     }
 
-                    await MarkIgnoredAsync(record, leaseOwner, cancellationToken).ConfigureAwait(false);
+                    var marked = await MarkIgnoredAsync(record, leaseOwner, cancellationToken).ConfigureAwait(false);
+                    if (!marked)
+                    {
+                        return CreateStatusUpdateFailure(activity, record, traceId, correlationId);
+                    }
                 }
                 else
                 {
                     var failedAt = _clock.UtcNow;
                     var failureCode = dispatchResult.FailureCode ?? "handler-failed";
-                    await _store.MarkFailedAsync(record.Id, leaseOwner, failedAt, failureCode, cancellationToken).ConfigureAwait(false);
+                    var marked = await _store.MarkFailedAsync(
+                        record.Id,
+                        leaseOwner,
+                        failedAt,
+                        failureCode,
+                        cancellationToken).ConfigureAwait(false);
+                    if (!marked)
+                    {
+                        return CreateStatusUpdateFailure(activity, record, traceId, correlationId);
+                    }
+
                     record.Status = WebhookProcessingStatus.Failed;
                     record.FailureReason = failureCode;
                     record.FailureCode = failureCode;
@@ -448,22 +471,7 @@ public sealed class WebhookIngestionService
             }
             catch (Exception exception)
             {
-                WebhookLogMessages.Failed(
-                    _logger,
-                    record.Id,
-                    record.Provider,
-                    record.EventId,
-                    record.EventType,
-                    nameof(WebhookProcessingStatus.Failed),
-                    record.AttemptCount,
-                    traceId,
-                    correlationId,
-                    "status-update-failed");
-                SetReceiveResult(activity, WebhookIngestionStatus.Failed);
-                return WebhookIngestionResult.CreateFailure(
-                    WebhookDispatchFailureKind.Handler,
-                    "status-update-failed",
-                    exception);
+                return CreateStatusUpdateFailure(activity, record, traceId, correlationId, exception);
             }
 
             SetReceiveResult(activity, ingestionStatus);
@@ -506,7 +514,7 @@ public sealed class WebhookIngestionService
         await _store.UpdateAsync(record, cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task MarkIgnoredAsync(
+    private async Task<bool> MarkIgnoredAsync(
         WebhookRecord record,
         string leaseOwner,
         CancellationToken cancellationToken)
@@ -519,9 +527,48 @@ public sealed class WebhookIngestionService
         record.ProcessingLeaseOwner = leaseOwner;
         await _store.UpdateAsync(record, cancellationToken).ConfigureAwait(false);
 
+        var ignoredRecord = await _store.GetByWebhookIdAsync(record.Id, cancellationToken).ConfigureAwait(false);
+        if (ignoredRecord is null ||
+            ignoredRecord.Status != WebhookProcessingStatus.Ignored ||
+            !string.Equals(ignoredRecord.ProcessingLeaseOwner, leaseOwner, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
         record.ProcessingLeaseOwner = null;
         record.ProcessingLeaseExpiresAt = null;
         await _store.UpdateAsync(record, cancellationToken).ConfigureAwait(false);
+
+        var persistedRecord = await _store.GetByWebhookIdAsync(record.Id, cancellationToken).ConfigureAwait(false);
+        return persistedRecord is not null &&
+               persistedRecord.Status == WebhookProcessingStatus.Ignored &&
+               persistedRecord.ProcessingLeaseOwner is null &&
+               persistedRecord.ProcessingLeaseExpiresAt is null;
+    }
+
+    private WebhookIngestionResult CreateStatusUpdateFailure(
+        Activity? activity,
+        WebhookRecord record,
+        string? traceId,
+        string correlationId,
+        Exception? exception = null)
+    {
+        WebhookLogMessages.Failed(
+            _logger,
+            record.Id,
+            record.Provider,
+            record.EventId,
+            record.EventType,
+            nameof(WebhookProcessingStatus.Failed),
+            record.AttemptCount,
+            traceId,
+            correlationId,
+            "status-update-failed");
+        SetReceiveResult(activity, WebhookIngestionStatus.Failed);
+        return WebhookIngestionResult.CreateFailure(
+            WebhookDispatchFailureKind.Handler,
+            "status-update-failed",
+            exception);
     }
 
     private async Task ReleaseClaimAsync(string webhookId, string leaseOwner)
@@ -862,6 +909,7 @@ public sealed class WebhookIngestionService
             ContentLength = request.ContentLength,
             RawBody = _options.Value.Storage.PersistRawBody ? rawBody : null,
             ReceivedAt = _clock.UtcNow,
+            ProviderTimestamp = timestampResult.ProviderTimestamp,
             Status = WebhookProcessingStatus.Received
         };
 
@@ -918,6 +966,7 @@ public sealed class WebhookIngestionService
             EventId = record.EventId,
             EventType = record.EventType,
             ReceivedAt = record.ReceivedAt,
+            ProviderTimestamp = record.ProviderTimestamp,
             Headers = record.Headers
         };
 

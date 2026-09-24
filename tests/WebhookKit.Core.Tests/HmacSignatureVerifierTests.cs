@@ -241,6 +241,26 @@ public sealed class HmacSignatureVerifierTests
     }
 
     [Fact]
+    public void VerifyAsync_ComparesEveryConfiguredSecretBeforeReturningMatch()
+    {
+        var sourcePath = Path.GetFullPath(Path.Combine(
+            AppContext.BaseDirectory,
+            "..",
+            "..",
+            "..",
+            "..",
+            "..",
+            "src",
+            "WebhookKit.Core",
+            "Verifiers",
+            "HmacSignatureVerifier.cs"));
+        var source = File.ReadAllText(sourcePath);
+
+        source.Should().Contain("valid |= CryptographicOperations.FixedTimeEquals(computedHash, expectedBytes);");
+        source.Should().NotContain("if (CryptographicOperations.FixedTimeEquals(computedHash, expectedBytes))");
+    }
+
+    [Fact]
     public async Task VerifyAsync_SecretRotation_SecondarySecretValid_Succeeds()
     {
         const string oldSecret = "old-deprecated-secret";

@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using WebhookKit.Abstractions;
 using WebhookKit.Core.DependencyInjection;
 using WebhookKit.Core.Processing;
+using WebhookKit.Core.Stores;
 using WebhookKit.Testing;
 using Xunit;
 
@@ -270,10 +271,13 @@ public sealed class WebhookProcessorTests
     }
 
     [Fact]
-    public async Task DispatchAsync_WhenPayloadAccessRacesWithCancellation_PropagatesCancellation()
+    public async Task DispatchAsync_WhenPayloadAccessRacesWithCancellation_RethrowsCancellationUnchanged()
     {
         var services = new ServiceCollection();
-        var probe = new DeserializationCancellationProbe();
+        var probe = new DeserializationCancellationProbe
+        {
+            CancellationException = new OperationCanceledException("payload deserialization cancelled")
+        };
         var deserializer = new CancelingDeserializer(probe);
         services.AddSingleton<InvocationLog>();
         services.AddSingleton(probe);
@@ -301,7 +305,8 @@ public sealed class WebhookProcessorTests
 
         var act = async () => await dispatch;
         var exception = await act.Should().ThrowAsync<OperationCanceledException>();
-        exception.Which.CancellationToken.Should().Be(cancellation.Token);
+        exception.Which.Should().BeSameAs(probe.CancellationException);
+        cancellation.IsCancellationRequested.Should().BeTrue();
     }
 
     [Fact]
@@ -354,6 +359,63 @@ public sealed class WebhookProcessorTests
         log.Entries.Should().Equal("ingestion:42:evt-1");
         var stored = await scope.ServiceProvider.GetRequiredService<IWebhookStore>().GetByWebhookIdAsync("webhook-1");
         stored!.Status.Should().Be(WebhookProcessingStatus.Processed);
+    }
+
+    [Fact]
+    public async Task IngestionService_PropagatesVerifiedProviderTimestampToContextAndStoredRecord()
+    {
+        var providerTimestamp = new DateTimeOffset(2026, 9, 24, 0, 0, 17, TimeSpan.Zero);
+        var log = new InvocationLog();
+        var signature = new StubSignatureVerifier(isValid: true);
+        var timestamp = new StubTimestampVerifier(isValid: true, providerTimestamp);
+        var eventId = new StubEventIdExtractor("evt-timestamp");
+        var eventType = new StubEventTypeExtractor("event.type");
+        using var provider = BuildIngestionProvider(log, signature, timestamp, eventId, eventType, registerHandler: true);
+        using var scope = provider.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<WebhookIngestionService>();
+
+        var result = await service.IngestAsync(CreateIngestionRequest("webhook-timestamp"));
+
+        result.Status.Should().Be(WebhookIngestionStatus.Processed);
+        result.Record!.ProviderTimestamp.Should().Be(providerTimestamp);
+        result.Context!.ProviderTimestamp.Should().Be(providerTimestamp);
+        var stored = await scope.ServiceProvider.GetRequiredService<IWebhookStore>()
+            .GetByWebhookIdAsync("webhook-timestamp");
+        stored!.ProviderTimestamp.Should().Be(providerTimestamp);
+    }
+
+    [Theory]
+    [InlineData(WebhookDispatchStatus.Processed)]
+    [InlineData(WebhookDispatchStatus.Ignored)]
+    [InlineData(WebhookDispatchStatus.Failed)]
+    public async Task IngestionService_WhenLeaseExpiresBeforeTerminalTransition_ReturnsStatusUpdateFailureWithoutMutatingReplacementOwner(
+        WebhookDispatchStatus dispatchStatus)
+    {
+        var clock = new FakeWebhookClock(new DateTimeOffset(2026, 9, 24, 0, 0, 0, TimeSpan.Zero));
+        var store = new InMemoryWebhookStore(clock);
+        var processor = new LeaseExpiringDispatchProcessor(store, clock, dispatchStatus);
+        var services = new ServiceCollection();
+        services.AddSingleton<IWebhookClock>(clock);
+        services.AddSingleton<IWebhookStore>(store);
+        services.AddSingleton<IWebhookDispatchProcessor>(processor);
+        services.AddSingleton<IWebhookSignatureVerifier>(new StubSignatureVerifier(isValid: true));
+        services.AddSingleton<IWebhookTimestampVerifier>(new StubTimestampVerifier(isValid: true));
+        services.AddSingleton<IWebhookEventIdExtractor>(new StubEventIdExtractor("evt-stale-owner"));
+        services.AddSingleton<IWebhookEventTypeExtractor>(new StubEventTypeExtractor("event.type"));
+        services.AddWebhookKit(options => options.AddProvider("test", provider => provider.Timestamp.AllowMissing = true));
+        using var provider = services.BuildServiceProvider();
+        using var scope = provider.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<WebhookIngestionService>();
+
+        var result = await service.IngestAsync(CreateIngestionRequest("webhook-stale-owner"));
+
+        processor.ReplacementClaimed.Should().BeTrue();
+        result.Status.Should().Be(WebhookIngestionStatus.Failed);
+        result.FailureCode.Should().Be("status-update-failed");
+        var stored = await store.GetByWebhookIdAsync("webhook-stale-owner");
+        stored!.Status.Should().Be(WebhookProcessingStatus.Processing);
+        stored.ProcessingLeaseOwner.Should().Be(LeaseExpiringDispatchProcessor.ReplacementOwner);
+        stored.AttemptCount.Should().Be(2);
     }
 
     [Fact]
@@ -547,6 +609,8 @@ public sealed class WebhookProcessorTests
         public TaskCompletionSource<bool> Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public TaskCompletionSource<bool> Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public OperationCanceledException? CancellationException { get; init; }
     }
 
     public sealed class CancelingDeserializer(DeserializationCancellationProbe probe) : IWebhookDeserializer
@@ -555,7 +619,7 @@ public sealed class WebhookProcessorTests
         {
             probe.Started.TrySetResult(true);
             probe.Release.Task.GetAwaiter().GetResult();
-            throw new OperationCanceledException();
+            throw probe.CancellationException ?? new OperationCanceledException();
         }
     }
 
@@ -696,7 +760,7 @@ public sealed class WebhookProcessorTests
         }
     }
 
-    public sealed class StubTimestampVerifier(bool isValid) : IWebhookTimestampVerifier
+    public sealed class StubTimestampVerifier(bool isValid, DateTimeOffset? providerTimestamp = null) : IWebhookTimestampVerifier
     {
         public int CallCount { get; private set; }
 
@@ -706,9 +770,10 @@ public sealed class WebhookProcessorTests
         {
             cancellationToken.ThrowIfCancellationRequested();
             CallCount++;
-            return ValueTask.FromResult(isValid
-                ? WebhookVerificationResult.Success()
-                : WebhookVerificationResult.Fail("safe-timestamp-failure"));
+            return ValueTask.FromResult(new WebhookVerificationResult(
+                isValid,
+                isValid ? null : "safe-timestamp-failure",
+                providerTimestamp));
         }
     }
 
@@ -737,6 +802,33 @@ public sealed class WebhookProcessorTests
             cancellationToken.ThrowIfCancellationRequested();
             CallCount++;
             return ValueTask.FromResult(value);
+        }
+    }
+
+    private sealed class LeaseExpiringDispatchProcessor(
+        IWebhookStore store,
+        FakeWebhookClock clock,
+        WebhookDispatchStatus status) : IWebhookDispatchProcessor
+    {
+        public const string ReplacementOwner = "replacement-worker";
+        public bool ReplacementClaimed { get; private set; }
+
+        public async Task<WebhookDispatchResult> DispatchAsync(
+            WebhookContext context,
+            CancellationToken cancellationToken = default)
+        {
+            clock.Advance(TimeSpan.FromMinutes(3));
+            ReplacementClaimed = await store.TryClaimAsync(
+                context.WebhookId,
+                ReplacementOwner,
+                TimeSpan.FromMinutes(5),
+                CancellationToken.None);
+            return status switch
+            {
+                WebhookDispatchStatus.Processed => WebhookDispatchResult.Processed(),
+                WebhookDispatchStatus.Ignored => WebhookDispatchResult.Ignored(),
+                _ => WebhookDispatchResult.Failed(WebhookDispatchFailureKind.Handler, "handler-failed")
+            };
         }
     }
 

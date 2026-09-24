@@ -17,11 +17,13 @@ public sealed class WebhookScenariosTests
     public async Task ValidSignedWebhook_IsProcessedAndHandlerReceivesTypedPayload()
     {
         await using var application = await CreateApplicationAsync();
+        var providerTimestamp = WebhookKitTestApplication.FixedNow.AddSeconds(-17);
         using var response = await application.SendSignedAsync(
             MinimalPath,
             "evt-valid",
             WebhookKitTestApplication.KnownEventType,
-            "{\"value\":42}");
+            "{\"value\":42}",
+            providerTimestamp);
 
         await AssertBodylessAsync(response, HttpStatusCode.OK);
         application.HandlerProbe.Invocations.Should().Be(1);
@@ -30,8 +32,10 @@ public sealed class WebhookScenariosTests
         application.HandlerProbe.Calls[0].Payload.Value.Should().Be(42);
         application.HandlerProbe.Calls[0].Context.EventId.Should().Be("evt-valid");
         application.HandlerProbe.Calls[0].Context.EventType.Should().Be(WebhookKitTestApplication.KnownEventType);
+        application.HandlerProbe.Calls[0].Context.ProviderTimestamp.Should().Be(providerTimestamp);
         application.ActionProbe.Invocations.Should().Be(0);
         await AssertRecordAsync(application, "evt-valid", WebhookProcessingStatus.Processed, 1);
+        (await application.GetRecordAsync("evt-valid"))!.ProviderTimestamp.Should().Be(providerTimestamp);
         application.RecordCount.Should().Be(1);
     }
 

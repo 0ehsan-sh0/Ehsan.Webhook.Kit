@@ -38,6 +38,26 @@ public sealed class ContextPayloadTests
     }
 
     [Fact]
+    public void GetPayload_WhenDeserializerCancels_RethrowsSameExceptionAndDoesNotCacheFailure()
+    {
+        var cancellationException = new OperationCanceledException("deserializer cancelled");
+        var attempts = 0;
+        var deserializer = new FakeJsonWebhookDeserializer();
+        deserializer.CancelWith = () => Interlocked.Increment(ref attempts) == 1
+            ? cancellationException
+            : null;
+        var context = CreateContext("{\"value\":42}"u8.ToArray(), deserializer);
+
+        var act = () => context.GetPayload<FirstCorePayload>();
+        var thrown = act.Should().ThrowExactly<OperationCanceledException>().Which;
+        var payload = context.GetPayload<FirstCorePayload>();
+
+        thrown.Should().BeSameAs(cancellationException);
+        payload.Value.Should().Be(42);
+        deserializer.CallCount.Should().Be(2);
+    }
+
+    [Fact]
     public void GetPayload_WithoutCancellation_PassesNonCancelableTokenToCoreDeserializer()
     {
         var deserializer = new FakeJsonWebhookDeserializer();
@@ -67,11 +87,17 @@ public sealed class ContextPayloadTests
 
         public CancellationToken LastCancellationToken { get; private set; }
 
+        public Func<Exception?>? CancelWith { get; set; }
+
         public T Deserialize<T>(ReadOnlyMemory<byte> rawBody, CancellationToken cancellationToken = default)
         {
             Interlocked.Increment(ref _callCount);
             LastCancellationToken = cancellationToken;
             cancellationToken.ThrowIfCancellationRequested();
+            if (CancelWith?.Invoke() is Exception exception)
+            {
+                throw exception;
+            }
 
             using var document = JsonDocument.Parse(rawBody);
             var value = document.RootElement.GetProperty("value").ToString();
