@@ -269,6 +269,7 @@ public sealed class EfCoreWebhookStore<TContext> : IWebhookStore
         entity.FailureCode = null;
         entity.ProcessingLeaseOwner = null;
         entity.ProcessingLeaseExpiresAt = null;
+        entity.ProcessingLeaseExpiresAtTicks = null;
         entity.Version = checked(entity.Version + 1);
         return await SaveNonRelationalAsync(cancellationToken).ConfigureAwait(false);
     }
@@ -322,6 +323,7 @@ public sealed class EfCoreWebhookStore<TContext> : IWebhookStore
         entity.FailureCode = safeCode;
         entity.ProcessingLeaseOwner = null;
         entity.ProcessingLeaseExpiresAt = null;
+        entity.ProcessingLeaseExpiresAtTicks = null;
         entity.Version = checked(entity.Version + 1);
         return await SaveNonRelationalAsync(cancellationToken).ConfigureAwait(false);
     }

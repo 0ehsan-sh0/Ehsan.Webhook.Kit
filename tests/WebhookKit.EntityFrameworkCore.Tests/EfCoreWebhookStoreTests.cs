@@ -487,6 +487,8 @@ public sealed class EfCoreWebhookStoreTests
         (await store.ReleaseAsync("webhook-1", "worker-1")).Should().BeTrue();
         (await store.TryClaimAsync("webhook-1", "worker-2", TimeSpan.FromMinutes(1))).Should().BeTrue();
         (await store.MarkProcessedAsync("webhook-1", "worker-2", Start.AddSeconds(10))).Should().BeTrue();
+        var entity = await context.Set<WebhookEntity>().SingleAsync();
+        entity.ProcessingLeaseExpiresAtTicks.Should().BeNull();
 
         (await store.GetRecoverableAsync(Start, TimeSpan.Zero, 10)).Should().BeEmpty();
     }
