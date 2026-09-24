@@ -118,7 +118,7 @@ public sealed class HmacSignatureVerifierTests
 
         var result = await verifier.VerifyAsync(context);
         result.IsValid.Should().BeFalse();
-        result.FailureReason.Should().Contain("invalid");
+        result.FailureReason.Should().Be("Signature verification failed.");
     }
 
     [Fact]
@@ -314,7 +314,7 @@ public sealed class HmacSignatureVerifierTests
 
         var result = await verifier.VerifyAsync(context);
         result.IsValid.Should().BeFalse();
-        result.FailureReason.Should().Be("Signature mismatch.");
+        result.FailureReason.Should().Be("Signature verification failed.");
     }
 
     [Fact]

@@ -43,15 +43,23 @@ public sealed class WebhookBodyReader : IWebhookBodyReader
         }
 
         // 3. Read stream in chunks, verifying accumulated size
-        byte[] rentBuffer = ArrayPool<byte>.Shared.Rent(BufferSize);
+        var initialBufferSize = maxSizeBytes < BufferSize ? (int)maxSizeBytes + 1 : BufferSize;
+        byte[] rentBuffer = ArrayPool<byte>.Shared.Rent(initialBufferSize);
         using var memoryStream = new MemoryStream(request.ContentLength.HasValue ? (int)Math.Min(request.ContentLength.Value, int.MaxValue) : 0);
         try
         {
-            int bytesRead;
             long totalBytesRead = 0;
 
-            while ((bytesRead = await bodyStream.ReadAsync(rentBuffer.AsMemory(), cancellationToken).ConfigureAwait(false)) > 0)
+            while (true)
             {
+                var remainingBytes = maxSizeBytes - totalBytesRead;
+                var readLength = remainingBytes < rentBuffer.Length ? (int)remainingBytes + 1 : rentBuffer.Length;
+                var bytesRead = await bodyStream.ReadAsync(rentBuffer.AsMemory(0, readLength), cancellationToken).ConfigureAwait(false);
+                if (bytesRead == 0)
+                {
+                    break;
+                }
+
                 totalBytesRead += bytesRead;
                 if (totalBytesRead > maxSizeBytes)
                 {

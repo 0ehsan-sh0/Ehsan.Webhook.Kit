@@ -97,7 +97,7 @@ public sealed class HmacSignatureVerifier : IWebhookSignatureVerifier
         }
         catch (FormatException)
         {
-            return ValueTask.FromResult(WebhookVerificationResult.Fail("Signature format is invalid."));
+            return ValueTask.FromResult(WebhookVerificationResult.Fail("Signature verification failed."));
         }
 
         var secrets = new List<string>();
@@ -139,7 +139,7 @@ public sealed class HmacSignatureVerifier : IWebhookSignatureVerifier
             }
         }
 
-        return ValueTask.FromResult(WebhookVerificationResult.Fail("Signature mismatch."));
+        return ValueTask.FromResult(WebhookVerificationResult.Fail("Signature verification failed."));
     }
 
     private static string StripPrefix(string headerValue)

@@ -60,10 +60,16 @@ public sealed class WebhookTimestampVerifier : IWebhookTimestampVerifier
         DateTimeOffset timestamp;
         if (long.TryParse(rawTimestamp, NumberStyles.None, CultureInfo.InvariantCulture, out long epochValue))
         {
-            // If epochValue < 10,000,000,000 (roughly Nov 2286 in seconds), treat as seconds; else milliseconds
-            timestamp = epochValue < 10_000_000_000L
-                ? DateTimeOffset.FromUnixTimeSeconds(epochValue)
-                : DateTimeOffset.FromUnixTimeMilliseconds(epochValue);
+            try
+            {
+                timestamp = epochValue < 10_000_000_000L
+                    ? DateTimeOffset.FromUnixTimeSeconds(epochValue)
+                    : DateTimeOffset.FromUnixTimeMilliseconds(epochValue);
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                return ValueTask.FromResult(WebhookVerificationResult.Fail("Timestamp format is invalid."));
+            }
         }
         else if (DateTimeOffset.TryParse(rawTimestamp, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsedDto))
         {
