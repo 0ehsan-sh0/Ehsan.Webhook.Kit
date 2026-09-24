@@ -49,8 +49,8 @@ public static class WebhookKitServiceCollectionExtensions
         services.TryAddSingleton<Queues.ChannelWebhookQueue>();
         services.TryAddSingleton<IWebhookQueue>(sp => sp.GetRequiredService<Queues.ChannelWebhookQueue>());
         services.TryAddSingleton<Deduplication.WebhookDeduplicationKeyFactory>();
-        services.TryAddSingleton<Deduplication.DefaultWebhookDeduplicator>();
-        services.TryAddSingleton<IWebhookDeduplicator>(sp => sp.GetRequiredService<Deduplication.DefaultWebhookDeduplicator>());
+        services.TryAddScoped<Deduplication.DefaultWebhookDeduplicator>();
+        services.TryAddScoped<IWebhookDeduplicator>(sp => sp.GetRequiredService<Deduplication.DefaultWebhookDeduplicator>());
 
         // Verifiers
         services.TryAddSingleton<IWebhookSignatureVerifier, Verifiers.HmacSignatureVerifier>();

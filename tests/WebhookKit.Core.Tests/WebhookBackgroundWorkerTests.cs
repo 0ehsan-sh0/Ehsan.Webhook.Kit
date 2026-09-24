@@ -706,7 +706,6 @@ public sealed class WebhookBackgroundWorkerTests
             var provider = services.BuildServiceProvider();
             var worker = new WebhookBackgroundWorker(
                 actualQueue,
-                store,
                 provider.GetRequiredService<IServiceScopeFactory>(),
                 Microsoft.Extensions.Options.Options.Create(options),
                 actualClock,

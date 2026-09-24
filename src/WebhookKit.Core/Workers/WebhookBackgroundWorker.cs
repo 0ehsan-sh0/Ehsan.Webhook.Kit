@@ -20,7 +20,6 @@ public sealed class WebhookBackgroundWorker : BackgroundService
     private const string RawBodyMissingFailureCode = "raw-body-missing";
     private const string WorkerFailureCode = "worker-failed";
     private readonly IWebhookQueue _queue;
-    private readonly IWebhookStore _store;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IOptions<WebhookKitOptions> _options;
     private readonly IWebhookClock _clock;
@@ -36,7 +35,6 @@ public sealed class WebhookBackgroundWorker : BackgroundService
 
     public WebhookBackgroundWorker(
         IWebhookQueue queue,
-        IWebhookStore store,
         IServiceScopeFactory scopeFactory,
         IOptions<WebhookKitOptions> options,
         IWebhookClock clock,
@@ -45,7 +43,6 @@ public sealed class WebhookBackgroundWorker : BackgroundService
         IWebhookRetryExecutor? retryExecutor = null)
     {
         _queue = queue ?? throw new ArgumentNullException(nameof(queue));
-        _store = store ?? throw new ArgumentNullException(nameof(store));
         _scopeFactory = scopeFactory ?? throw new ArgumentNullException(nameof(scopeFactory));
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
@@ -197,8 +194,10 @@ public sealed class WebhookBackgroundWorker : BackgroundService
             IReadOnlyList<WebhookRecord> records;
             try
             {
+                await using var scope = _scopeFactory.CreateAsyncScope();
+                var store = scope.ServiceProvider.GetRequiredService<IWebhookStore>();
                 var background = _options.Value.Background;
-                records = await _store.GetRecoverableAsync(
+                records = await store.GetRecoverableAsync(
                     _clock.UtcNow,
                     background.RecoveryAge,
                     Math.Max(1, background.RecoveryBatchSize),
@@ -273,6 +272,7 @@ public sealed class WebhookBackgroundWorker : BackgroundService
     private async Task ProcessWorkItemAsync(WebhookWorkItem workItem, CancellationToken cancellationToken)
     {
         WebhookRecord? record = null;
+        IWebhookStore? store = null;
         var claimed = false;
         var correlationId = string.Empty;
         string? traceId = null;
@@ -280,14 +280,16 @@ public sealed class WebhookBackgroundWorker : BackgroundService
 
         try
         {
-            record = await _store.GetByWebhookIdAsync(workItem.WebhookId, cancellationToken).ConfigureAwait(false);
+            await using var scope = _scopeFactory.CreateAsyncScope();
+            var scopedStore = scope.ServiceProvider.GetRequiredService<IWebhookStore>();
+            store = scopedStore;
+            record = await scopedStore.GetByWebhookIdAsync(workItem.WebhookId, cancellationToken).ConfigureAwait(false);
             if (record is null || IsTerminal(record.Status) || !ProviderMatches(record, workItem))
             {
                 return;
             }
 
-            await using var scope = _scopeFactory.CreateAsyncScope();
-            claimed = await _store.TryClaimAsync(
+            claimed = await scopedStore.TryClaimAsync(
                 workItem.WebhookId,
                 _leaseOwner,
                 _options.Value.Background.LeaseDuration,
@@ -297,10 +299,10 @@ public sealed class WebhookBackgroundWorker : BackgroundService
                 return;
             }
 
-            var claimedRecord = await _store.GetByWebhookIdAsync(workItem.WebhookId, cancellationToken).ConfigureAwait(false);
+            var claimedRecord = await scopedStore.GetByWebhookIdAsync(workItem.WebhookId, cancellationToken).ConfigureAwait(false);
             if (claimedRecord is null)
             {
-                await ReleaseAfterCancellationAsync(workItem.WebhookId).ConfigureAwait(false);
+                await ReleaseAfterCancellationAsync(workItem.WebhookId, scopedStore).ConfigureAwait(false);
                 claimed = false;
                 return;
             }
@@ -324,7 +326,7 @@ public sealed class WebhookBackgroundWorker : BackgroundService
 
             if (record.RawBody is null)
             {
-                await MarkFailedAsync(record, RawBodyMissingFailureCode, traceId, correlationId, attempt, cancellationToken).ConfigureAwait(false);
+                await MarkFailedAsync(scopedStore, record, RawBodyMissingFailureCode, traceId, correlationId, attempt, cancellationToken).ConfigureAwait(false);
                 return;
             }
 
@@ -347,7 +349,7 @@ public sealed class WebhookBackgroundWorker : BackgroundService
                 processor,
                 context,
                 retryOptions,
-                (currentAttempt, token) => PersistAttemptAsync(record, currentAttempt, token),
+                (currentAttempt, token) => PersistAttemptAsync(scopedStore, record, currentAttempt, token),
                 (currentAttempt, nextDelay, failureCode, _) =>
                 {
                     WebhookLogMessages.Retry(
@@ -371,13 +373,14 @@ public sealed class WebhookBackgroundWorker : BackgroundService
             switch (result.Status)
             {
                 case WebhookDispatchStatus.Processed:
-                    await MarkProcessedAsync(record, traceId, correlationId, attempt, cancellationToken).ConfigureAwait(false);
+                    await MarkProcessedAsync(scopedStore, record, traceId, correlationId, attempt, cancellationToken).ConfigureAwait(false);
                     break;
                 case WebhookDispatchStatus.Ignored:
-                    await MarkIgnoredAsync(record, traceId, correlationId, attempt, cancellationToken).ConfigureAwait(false);
+                    await MarkIgnoredAsync(scopedStore, record, traceId, correlationId, attempt, cancellationToken).ConfigureAwait(false);
                     break;
                 case WebhookDispatchStatus.Failed:
                     await MarkFailedAsync(
+                        scopedStore,
                         record,
                         ResolveFailureCode(result),
                         traceId,
@@ -386,24 +389,25 @@ public sealed class WebhookBackgroundWorker : BackgroundService
                         cancellationToken).ConfigureAwait(false);
                     break;
                 default:
-                    await MarkFailedAsync(record, WorkerFailureCode, traceId, correlationId, attempt, cancellationToken).ConfigureAwait(false);
+                    await MarkFailedAsync(scopedStore, record, WorkerFailureCode, traceId, correlationId, attempt, cancellationToken).ConfigureAwait(false);
                     break;
             }
         }
         catch (OperationCanceledException)
         {
-            if (claimed)
+            if (claimed && store is not null)
             {
-                await ReleaseAfterCancellationAsync(workItem.WebhookId).ConfigureAwait(false);
+                await ReleaseAfterCancellationAsync(workItem.WebhookId, store).ConfigureAwait(false);
             }
 
             throw;
         }
         catch
         {
-            if (claimed && record is not null)
+            if (claimed && store is not null && record is not null)
             {
                 await MarkFailedAsync(
+                    store,
                     record,
                     WorkerFailureCode,
                     traceId,
@@ -426,6 +430,7 @@ public sealed class WebhookBackgroundWorker : BackgroundService
     }
 
     private async Task PersistAttemptAsync(
+        IWebhookStore store,
         WebhookRecord record,
         int attempt,
         CancellationToken cancellationToken)
@@ -434,10 +439,11 @@ public sealed class WebhookBackgroundWorker : BackgroundService
         record.LastAttemptAt = _clock.UtcNow;
         record.Status = WebhookProcessingStatus.Processing;
         record.ProcessingLeaseOwner = _leaseOwner;
-        await _store.UpdateAsync(record, cancellationToken).ConfigureAwait(false);
+        await store.UpdateAsync(record, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task MarkProcessedAsync(
+        IWebhookStore store,
         WebhookRecord record,
         string? traceId,
         string correlationId,
@@ -446,7 +452,7 @@ public sealed class WebhookBackgroundWorker : BackgroundService
     {
         try
         {
-            var marked = await _store.MarkProcessedAsync(
+            var marked = await store.MarkProcessedAsync(
                 record.Id,
                 _leaseOwner,
                 _clock.UtcNow,
@@ -478,6 +484,7 @@ public sealed class WebhookBackgroundWorker : BackgroundService
     }
 
     private async Task MarkIgnoredAsync(
+        IWebhookStore store,
         WebhookRecord record,
         string? traceId,
         string correlationId,
@@ -491,11 +498,11 @@ public sealed class WebhookBackgroundWorker : BackgroundService
             record.FailedAt = null;
             record.FailureReason = null;
             record.FailureCode = null;
-            await _store.UpdateAsync(record, cancellationToken).ConfigureAwait(false);
+            await store.UpdateAsync(record, cancellationToken).ConfigureAwait(false);
 
             record.ProcessingLeaseOwner = null;
             record.ProcessingLeaseExpiresAt = null;
-            await _store.UpdateAsync(record, cancellationToken).ConfigureAwait(false);
+            await store.UpdateAsync(record, cancellationToken).ConfigureAwait(false);
             WebhookLogMessages.Ignored(
                 _logger,
                 record.Id,
@@ -518,6 +525,7 @@ public sealed class WebhookBackgroundWorker : BackgroundService
     }
 
     private async Task MarkFailedAsync(
+        IWebhookStore store,
         WebhookRecord record,
         string failureCode,
         string? traceId,
@@ -527,7 +535,7 @@ public sealed class WebhookBackgroundWorker : BackgroundService
     {
         try
         {
-            var marked = await _store.MarkFailedAsync(
+            var marked = await store.MarkFailedAsync(
                 record.Id,
                 _leaseOwner,
                 _clock.UtcNow,
@@ -560,11 +568,11 @@ public sealed class WebhookBackgroundWorker : BackgroundService
         }
     }
 
-    private async Task ReleaseAfterCancellationAsync(string webhookId)
+    private async Task ReleaseAfterCancellationAsync(string webhookId, IWebhookStore store)
     {
         try
         {
-            await _store.ReleaseAsync(webhookId, _leaseOwner, CancellationToken.None).ConfigureAwait(false);
+            await store.ReleaseAsync(webhookId, _leaseOwner, CancellationToken.None).ConfigureAwait(false);
         }
         catch
         {
