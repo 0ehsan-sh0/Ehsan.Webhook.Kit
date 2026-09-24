@@ -1,7 +1,11 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using WebhookKit.Abstractions;
 using WebhookKit.Core.Deduplication;
+using WebhookKit.Core.Diagnostics;
 using WebhookKit.Core.Options;
 
 namespace WebhookKit.Core.Processing;
@@ -170,6 +174,7 @@ public sealed class WebhookIngestionService
     private readonly IWebhookClock _clock;
     private readonly IOptions<WebhookKitOptions> _options;
     private readonly IWebhookDispatchProcessor _processor;
+    private readonly ILogger<WebhookIngestionService> _logger;
 
     public WebhookIngestionService(
         IWebhookSignatureVerifier signatureVerifier,
@@ -182,7 +187,8 @@ public sealed class WebhookIngestionService
         IWebhookStore store,
         IWebhookClock clock,
         IOptions<WebhookKitOptions> options,
-        IWebhookDispatchProcessor processor)
+        IWebhookDispatchProcessor processor,
+        ILogger<WebhookIngestionService>? logger = null)
     {
         _signatureVerifier = signatureVerifier ?? throw new ArgumentNullException(nameof(signatureVerifier));
         _timestampVerifier = timestampVerifier ?? throw new ArgumentNullException(nameof(timestampVerifier));
@@ -195,6 +201,7 @@ public sealed class WebhookIngestionService
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _processor = processor ?? throw new ArgumentNullException(nameof(processor));
+        _logger = logger ?? NullLogger<WebhookIngestionService>.Instance;
     }
 
     public Task<WebhookIngestionResult> AdmitAsync(
@@ -221,6 +228,7 @@ public sealed class WebhookIngestionService
         WebhookIngestionRequest request,
         CancellationToken cancellationToken = default)
     {
+        var traceId = Activity.Current?.TraceId.ToString();
         var admission = await AdmitCoreAsync(request, cancellationToken).ConfigureAwait(false);
         if (admission.Status != WebhookIngestionStatus.Accepted)
         {
@@ -242,6 +250,16 @@ public sealed class WebhookIngestionService
         }
         catch (Exception exception)
         {
+            WebhookLogMessages.Failed(
+                _logger,
+                record.Id,
+                record.Provider,
+                record.EventId,
+                record.EventType,
+                nameof(WebhookProcessingStatus.Failed),
+                record.AttemptCount,
+                traceId,
+                "handler-failed");
             dispatchResult = WebhookDispatchResult.Failed(
                 WebhookDispatchFailureKind.Handler,
                 "handler-failed",
@@ -290,6 +308,16 @@ public sealed class WebhookIngestionService
         }
         catch (Exception exception)
         {
+            WebhookLogMessages.Failed(
+                _logger,
+                record.Id,
+                record.Provider,
+                record.EventId,
+                record.EventType,
+                nameof(WebhookProcessingStatus.Failed),
+                record.AttemptCount,
+                traceId,
+                "status-update-failed");
             return WebhookIngestionResult.CreateFailure(
                 WebhookDispatchFailureKind.Handler,
                 "status-update-failed",
@@ -306,6 +334,17 @@ public sealed class WebhookIngestionService
         ArgumentNullException.ThrowIfNull(request);
         ValidateRequest(request);
         cancellationToken.ThrowIfCancellationRequested();
+        var traceId = Activity.Current?.TraceId.ToString();
+
+        WebhookLogMessages.Received(
+            _logger,
+            request.WebhookId,
+            request.Provider,
+            null,
+            null,
+            nameof(WebhookProcessingStatus.Received),
+            0,
+            traceId);
 
         var rawBody = request.RawBody.ToArray();
         var headers = CopyHeaders(request.Headers);
@@ -329,6 +368,16 @@ public sealed class WebhookIngestionService
         }
         catch (Exception exception)
         {
+            WebhookLogMessages.Failed(
+                _logger,
+                request.WebhookId,
+                request.Provider,
+                null,
+                null,
+                nameof(WebhookProcessingStatus.Failed),
+                0,
+                traceId,
+                "signature-verification-failed");
             return WebhookIngestionResult.CreateFailure(
                 WebhookDispatchFailureKind.Handler,
                 "signature-verification-failed",
@@ -337,6 +386,16 @@ public sealed class WebhookIngestionService
 
         if (!signatureResult.IsValid)
         {
+            WebhookLogMessages.Rejected(
+                _logger,
+                request.WebhookId,
+                request.Provider,
+                null,
+                null,
+                "Rejected",
+                0,
+                traceId,
+                "signature-verification-failed");
             return WebhookIngestionResult.CreateRejected(
                 "signature-verification-failed",
                 signatureResult.FailureReason);
@@ -355,6 +414,16 @@ public sealed class WebhookIngestionService
         }
         catch (Exception exception)
         {
+            WebhookLogMessages.Failed(
+                _logger,
+                request.WebhookId,
+                request.Provider,
+                null,
+                null,
+                nameof(WebhookProcessingStatus.Failed),
+                0,
+                traceId,
+                "timestamp-verification-failed");
             return WebhookIngestionResult.CreateFailure(
                 WebhookDispatchFailureKind.Handler,
                 "timestamp-verification-failed",
@@ -363,10 +432,30 @@ public sealed class WebhookIngestionService
 
         if (!timestampResult.IsValid)
         {
+            WebhookLogMessages.Rejected(
+                _logger,
+                request.WebhookId,
+                request.Provider,
+                null,
+                null,
+                "Rejected",
+                0,
+                traceId,
+                "timestamp-verification-failed");
             return WebhookIngestionResult.CreateRejected(
                 "timestamp-verification-failed",
                 timestampResult.FailureReason);
         }
+
+        WebhookLogMessages.Verified(
+            _logger,
+            request.WebhookId,
+            request.Provider,
+            null,
+            null,
+            "Verified",
+            0,
+            traceId);
 
         string? eventId;
         try
@@ -382,6 +471,16 @@ public sealed class WebhookIngestionService
         }
         catch (Exception exception)
         {
+            WebhookLogMessages.Failed(
+                _logger,
+                request.WebhookId,
+                request.Provider,
+                null,
+                null,
+                nameof(WebhookProcessingStatus.Failed),
+                0,
+                traceId,
+                "event-id-extraction-failed");
             return WebhookIngestionResult.CreateFailure(
                 WebhookDispatchFailureKind.Payload,
                 "event-id-extraction-failed",
@@ -402,6 +501,16 @@ public sealed class WebhookIngestionService
         }
         catch (Exception exception)
         {
+            WebhookLogMessages.Failed(
+                _logger,
+                request.WebhookId,
+                request.Provider,
+                eventId,
+                null,
+                nameof(WebhookProcessingStatus.Failed),
+                0,
+                traceId,
+                "event-type-extraction-failed");
             return WebhookIngestionResult.CreateFailure(
                 WebhookDispatchFailureKind.Payload,
                 "event-type-extraction-failed",
@@ -410,6 +519,16 @@ public sealed class WebhookIngestionService
 
         if (eventType is null)
         {
+            WebhookLogMessages.Failed(
+                _logger,
+                request.WebhookId,
+                request.Provider,
+                eventId,
+                null,
+                nameof(WebhookProcessingStatus.Failed),
+                0,
+                traceId,
+                "missing-event-type");
             return WebhookIngestionResult.CreateFailure(
                 WebhookDispatchFailureKind.Payload,
                 "missing-event-type");
@@ -417,6 +536,16 @@ public sealed class WebhookIngestionService
 
         if (!_options.Value.Providers.TryGetValue(request.Provider, out var providerOptions))
         {
+            WebhookLogMessages.Failed(
+                _logger,
+                request.WebhookId,
+                request.Provider,
+                eventId,
+                eventType,
+                nameof(WebhookProcessingStatus.Failed),
+                0,
+                traceId,
+                "provider-not-configured");
             return WebhookIngestionResult.CreateFailure(
                 WebhookDispatchFailureKind.Handler,
                 "provider-not-configured");
@@ -433,9 +562,20 @@ public sealed class WebhookIngestionService
         }
         catch (Exception exception)
         {
+            var failureCode = eventId is null ? "event-id-required" : "deduplication-failed";
+            WebhookLogMessages.Failed(
+                _logger,
+                request.WebhookId,
+                request.Provider,
+                eventId,
+                eventType,
+                nameof(WebhookProcessingStatus.Failed),
+                0,
+                traceId,
+                failureCode);
             return WebhookIngestionResult.CreateFailure(
                 WebhookDispatchFailureKind.Payload,
-                eventId is null ? "event-id-required" : "deduplication-failed",
+                failureCode,
                 exception);
         }
 
@@ -469,6 +609,16 @@ public sealed class WebhookIngestionService
         }
         catch (Exception exception)
         {
+            WebhookLogMessages.Failed(
+                _logger,
+                request.WebhookId,
+                request.Provider,
+                eventId,
+                eventType,
+                nameof(WebhookProcessingStatus.Failed),
+                0,
+                traceId,
+                "deduplication-failed");
             return WebhookIngestionResult.CreateFailure(
                 WebhookDispatchFailureKind.Handler,
                 "deduplication-failed",
@@ -477,6 +627,15 @@ public sealed class WebhookIngestionService
 
         if (!acquired)
         {
+            WebhookLogMessages.Duplicate(
+                _logger,
+                request.WebhookId,
+                request.Provider,
+                eventId,
+                eventType,
+                nameof(WebhookProcessingStatus.Duplicate),
+                0,
+                traceId);
             return WebhookIngestionResult.CreateDuplicate();
         }
 

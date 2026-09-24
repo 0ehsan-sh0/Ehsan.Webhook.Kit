@@ -1,6 +1,10 @@
+using System.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using WebhookKit.Abstractions;
 using WebhookKit.Abstractions.Exceptions;
+using WebhookKit.Core.Diagnostics;
 using WebhookKit.Core.Handlers;
 
 namespace WebhookKit.Core.Processing;
@@ -14,13 +18,18 @@ public sealed class WebhookProcessor : IWebhookProcessor, IWebhookDispatchProces
 {
     private readonly WebhookHandlerRegistry _registry;
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly ILogger<WebhookProcessor> _logger;
 
-    public WebhookProcessor(WebhookHandlerRegistry registry, IServiceScopeFactory scopeFactory)
+    public WebhookProcessor(
+        WebhookHandlerRegistry registry,
+        IServiceScopeFactory scopeFactory,
+        ILogger<WebhookProcessor>? logger = null)
     {
         ArgumentNullException.ThrowIfNull(registry);
         ArgumentNullException.ThrowIfNull(scopeFactory);
         _registry = registry;
         _scopeFactory = scopeFactory;
+        _logger = logger ?? NullLogger<WebhookProcessor>.Instance;
     }
 
     public async Task<WebhookDispatchResult> DispatchAsync(
@@ -29,9 +38,30 @@ public sealed class WebhookProcessor : IWebhookProcessor, IWebhookDispatchProces
     {
         ArgumentNullException.ThrowIfNull(context);
         cancellationToken.ThrowIfCancellationRequested();
+        var traceId = Activity.Current?.TraceId.ToString();
+
+        WebhookLogMessages.Processing(
+            _logger,
+            context.WebhookId,
+            context.Provider,
+            context.EventId,
+            context.EventType,
+            nameof(WebhookProcessingStatus.Processing),
+            0,
+            traceId);
 
         if (string.IsNullOrWhiteSpace(context.EventType))
         {
+            WebhookLogMessages.Failed(
+                _logger,
+                context.WebhookId,
+                context.Provider,
+                context.EventId,
+                null,
+                nameof(WebhookProcessingStatus.Failed),
+                0,
+                traceId,
+                "missing-event-type");
             return WebhookDispatchResult.Failed(
                 WebhookDispatchFailureKind.Payload,
                 "missing-event-type",
@@ -42,6 +72,15 @@ public sealed class WebhookProcessor : IWebhookProcessor, IWebhookDispatchProces
         await using var scope = _scopeFactory.CreateAsyncScope();
         if (handlers.Count == 0)
         {
+            WebhookLogMessages.Ignored(
+                _logger,
+                context.WebhookId,
+                context.Provider,
+                context.EventId,
+                context.EventType,
+                nameof(WebhookProcessingStatus.Ignored),
+                0,
+                traceId);
             return WebhookDispatchResult.Ignored();
         }
 
@@ -54,6 +93,15 @@ public sealed class WebhookProcessor : IWebhookProcessor, IWebhookDispatchProces
             }
 
             cancellationToken.ThrowIfCancellationRequested();
+            WebhookLogMessages.Processed(
+                _logger,
+                context.WebhookId,
+                context.Provider,
+                context.EventId,
+                context.EventType,
+                nameof(WebhookProcessingStatus.Processed),
+                0,
+                traceId);
             return WebhookDispatchResult.Processed();
         }
         catch (OperationCanceledException)
@@ -66,10 +114,30 @@ public sealed class WebhookProcessor : IWebhookProcessor, IWebhookDispatchProces
         }
         catch (WebhookPayloadException exception)
         {
+            WebhookLogMessages.Failed(
+                _logger,
+                context.WebhookId,
+                context.Provider,
+                context.EventId,
+                context.EventType,
+                nameof(WebhookProcessingStatus.Failed),
+                0,
+                traceId,
+                "payload-invalid");
             return WebhookDispatchResult.Failed(WebhookDispatchFailureKind.Payload, "payload-invalid", exception);
         }
         catch (Exception exception)
         {
+            WebhookLogMessages.Failed(
+                _logger,
+                context.WebhookId,
+                context.Provider,
+                context.EventId,
+                context.EventType,
+                nameof(WebhookProcessingStatus.Failed),
+                0,
+                traceId,
+                "handler-failed");
             return WebhookDispatchResult.Failed(WebhookDispatchFailureKind.Handler, "handler-failed", exception);
         }
     }
