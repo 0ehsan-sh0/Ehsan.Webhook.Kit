@@ -96,6 +96,35 @@ public sealed class WebhookKitOptionsTests
     }
 
     [Fact]
+    public void Validator_RejectsInvalidRetryJitterRatio()
+    {
+        var options = new WebhookKitOptions();
+        options.AddProvider("p", provider =>
+        {
+            provider.Timestamp.AllowMissing = true;
+            provider.Retry.JitterRatio = -0.1;
+        });
+
+        new WebhookKitOptionsValidator().Validate(null, options).Succeeded.Should().BeFalse();
+
+        options.Providers["p"].Retry.JitterRatio = 1.1;
+        new WebhookKitOptionsValidator().Validate(null, options).Succeeded.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Validator_DefaultLeaseCoversDefaultRetryWindowWithMaximumJitter()
+    {
+        var options = new WebhookKitOptions();
+        options.AddProvider("p", provider => provider.Timestamp.AllowMissing = true);
+
+        var result = new WebhookKitOptionsValidator().Validate(null, options);
+
+        result.Succeeded.Should().BeTrue();
+        options.Background.LeaseDuration.Should().BeGreaterThan(
+            WebhookKit.Core.Retries.WebhookRetryPolicy.GetMaximumRetryWindow(options.Providers["p"].Retry));
+    }
+
+    [Fact]
     public void Validator_RequiresTimestampConfigurationUnlessExplicitlyAllowed()
     {
         var missing = new WebhookKitOptions();

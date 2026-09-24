@@ -15,6 +15,7 @@ using WebhookKit.Core.Clocks;
 using WebhookKit.Core.DependencyInjection;
 using WebhookKit.Core.Options;
 using WebhookKit.Core.Processing;
+using WebhookKit.Core.Retries;
 using WebhookKit.Testing;
 using Xunit;
 
@@ -502,6 +503,28 @@ public sealed class WebhookEndpointServiceTests
     }
 
     [Fact]
+    public async Task ProcessAsync_SyncIgnoredSuccessCanDiscardPersistedRawBody()
+    {
+        var body = Encoding.UTF8.GetBytes("{\"value\":42}");
+        var context = CreateRequest(body, "evt-ignored-discard", "unregistered.event");
+        using var provider = BuildProvider(
+            configureStorage: storage =>
+            {
+                storage.PersistRawBody = true;
+                storage.DiscardRawBodyAfterSuccessfulSync = true;
+            });
+        using var scope = provider.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<IWebhookEndpointService>();
+
+        var result = await service.ProcessAsync(context, CreateEndpointOptions());
+
+        result.Outcome.Should().Be(WebhookEndpointOutcome.Ignored);
+        var record = await scope.ServiceProvider.GetRequiredService<IWebhookStore>().GetAsync(ProviderName, "evt-ignored-discard");
+        record!.Status.Should().Be(WebhookProcessingStatus.Ignored);
+        record.RawBody.Should().BeNull();
+    }
+
+    [Fact]
     public async Task ProcessAsync_SyncAdmissionWithoutRawBodyPersistence_StillDispatchesFromContext()
     {
         var body = Encoding.UTF8.GetBytes("{\"value\":42}");
@@ -535,6 +558,75 @@ public sealed class WebhookEndpointServiceTests
         result.Code.Should().Be("handler-failed");
         result.Message.Should().NotContain("exception");
         result.ToString().Should().NotContain("exception");
+    }
+
+    [Fact]
+    public async Task ProcessAsync_RetryableDispatchExhaustion_ReturnsProcessingFailureAndPersistsFailedState()
+    {
+        var body = Encoding.UTF8.GetBytes("{\"value\":42}");
+        var context = CreateRequest(body, "evt-retry-exhaustion", "known.event");
+        var processor = new RetryExhaustingDispatchProcessor();
+        using var provider = BuildProvider(processor: processor, retryDelay: new ImmediateRetryDelay());
+        using var scope = provider.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<IWebhookEndpointService>();
+
+        var result = await service.ProcessAsync(context, CreateEndpointOptions());
+
+        result.Outcome.Should().Be(WebhookEndpointOutcome.ProcessingFailed);
+        result.StatusCode.Should().Be(StatusCodes.Status500InternalServerError);
+        processor.Calls.Should().Be(3);
+        var record = await scope.ServiceProvider.GetRequiredService<IWebhookStore>().GetAsync(ProviderName, "evt-retry-exhaustion");
+        record!.Status.Should().Be(WebhookProcessingStatus.Failed);
+        record.AttemptCount.Should().Be(3);
+        record.FailureCode.Should().Be("retryable-failure");
+        record.FailureReason.Should().NotContain("secret retry detail");
+    }
+
+    [Fact]
+    public async Task ProcessAsync_CancellationDuringDispatchReleasesSynchronousClaim()
+    {
+        var body = Encoding.UTF8.GetBytes("{\"value\":42}");
+        var context = CreateRequest(body, "evt-sync-operation-cancel", "known.event");
+        var processor = new BlockingDispatchProcessor();
+        using var provider = BuildProvider(processor: processor);
+        using var scope = provider.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<IWebhookEndpointService>();
+        using var cancellation = new CancellationTokenSource();
+
+        var operation = service.ProcessAsync(context, CreateEndpointOptions(), cancellation.Token);
+        await processor.Started.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        cancellation.Cancel();
+
+        var act = async () => await operation;
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        var record = await scope.ServiceProvider.GetRequiredService<IWebhookStore>().GetAsync(ProviderName, "evt-sync-operation-cancel");
+        record!.Status.Should().Be(WebhookProcessingStatus.Received);
+        record.ProcessingLeaseOwner.Should().BeNull();
+        record.AttemptCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task ProcessAsync_CancellationDuringRetryDelayReleasesSynchronousClaim()
+    {
+        var body = Encoding.UTF8.GetBytes("{\"value\":42}");
+        var context = CreateRequest(body, "evt-sync-delay-cancel", "known.event");
+        var delay = new BlockingRetryDelay();
+        var processor = new RetryExhaustingDispatchProcessor();
+        using var provider = BuildProvider(processor: processor, retryDelay: delay);
+        using var scope = provider.CreateScope();
+        var service = scope.ServiceProvider.GetRequiredService<IWebhookEndpointService>();
+        using var cancellation = new CancellationTokenSource();
+
+        var operation = service.ProcessAsync(context, CreateEndpointOptions(), cancellation.Token);
+        await delay.Entered.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        cancellation.Cancel();
+
+        var act = async () => await operation;
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        processor.Calls.Should().Be(1);
+        var record = await scope.ServiceProvider.GetRequiredService<IWebhookStore>().GetAsync(ProviderName, "evt-sync-delay-cancel");
+        record!.Status.Should().Be(WebhookProcessingStatus.Received);
+        record.ProcessingLeaseOwner.Should().BeNull();
     }
 
     [Fact]
@@ -674,7 +766,8 @@ public sealed class WebhookEndpointServiceTests
         bool registerHandler = true,
         long? providerBodyLimit = 1024,
         Action<WebhookProviderOptions>? configureProvider = null,
-        Action<WebhookStorageOptions>? configureStorage = null)
+        Action<WebhookStorageOptions>? configureStorage = null,
+        IWebhookRetryDelay? retryDelay = null)
     {
         var services = new ServiceCollection();
         services.AddWebhookKit(options =>
@@ -697,6 +790,11 @@ public sealed class WebhookEndpointServiceTests
         if (bodyReader is not null)
         {
             services.AddSingleton(bodyReader);
+        }
+
+        if (retryDelay is not null)
+        {
+            services.AddSingleton(retryDelay);
         }
 
         services.AddWebhookKitAspNetCore();
@@ -895,6 +993,51 @@ public sealed class WebhookEndpointServiceTests
         {
             calls.Add("deserialize");
             return default!;
+        }
+    }
+
+    private sealed class BlockingRetryDelay : IWebhookRetryDelay
+    {
+        public TaskCompletionSource<bool> Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public async Task DelayAsync(TimeSpan delay, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Entered.TrySetResult(true);
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+        }
+    }
+
+    private sealed class BlockingDispatchProcessor : IWebhookDispatchProcessor
+    {
+        public TaskCompletionSource<bool> Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public async Task<WebhookDispatchResult> DispatchAsync(WebhookContext context, CancellationToken cancellationToken = default)
+        {
+            Started.TrySetResult(true);
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            return WebhookDispatchResult.Processed();
+        }
+    }
+
+    private sealed class ImmediateRetryDelay : IWebhookRetryDelay
+    {
+        public Task DelayAsync(TimeSpan delay, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class RetryExhaustingDispatchProcessor : IWebhookDispatchProcessor
+    {
+        public int Calls { get; private set; }
+
+        public Task<WebhookDispatchResult> DispatchAsync(WebhookContext context, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Calls++;
+            throw new WebhookKit.Abstractions.Exceptions.WebhookRetryableException("secret retry detail");
         }
     }
 

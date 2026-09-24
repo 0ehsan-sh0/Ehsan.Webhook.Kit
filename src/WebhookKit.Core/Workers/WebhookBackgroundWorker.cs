@@ -6,17 +6,15 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using WebhookKit.Abstractions;
-using WebhookKit.Abstractions.Exceptions;
 using WebhookKit.Core.Diagnostics;
 using WebhookKit.Core.Options;
 using WebhookKit.Core.Processing;
+using WebhookKit.Core.Retries;
 
 namespace WebhookKit.Core.Workers;
 
 public sealed class WebhookBackgroundWorker : BackgroundService
 {
-    private const string RetryableFailureCode = "retryable-failure";
-    private const string PermanentFailureCode = "permanent-failure";
     private const string HandlerFailureCode = "handler-failed";
     private const string PayloadFailureCode = "payload-invalid";
     private const string RawBodyMissingFailureCode = "raw-body-missing";
@@ -28,6 +26,7 @@ public sealed class WebhookBackgroundWorker : BackgroundService
     private readonly IWebhookClock _clock;
     private readonly ILogger<WebhookBackgroundWorker> _logger;
     private readonly TimeProvider _timeProvider;
+    private readonly IWebhookRetryExecutor _retryExecutor;
     private readonly string _leaseOwner = Guid.NewGuid().ToString("N");
     private readonly SemaphoreSlim _recoveryGate = new(1, 1);
     private readonly object _scheduledGate = new();
@@ -42,7 +41,8 @@ public sealed class WebhookBackgroundWorker : BackgroundService
         IOptions<WebhookKitOptions> options,
         IWebhookClock clock,
         ILogger<WebhookBackgroundWorker>? logger = null,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        IWebhookRetryExecutor? retryExecutor = null)
     {
         _queue = queue ?? throw new ArgumentNullException(nameof(queue));
         _store = store ?? throw new ArgumentNullException(nameof(store));
@@ -51,6 +51,7 @@ public sealed class WebhookBackgroundWorker : BackgroundService
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _logger = logger ?? NullLogger<WebhookBackgroundWorker>.Instance;
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _retryExecutor = retryExecutor ?? new WebhookRetryExecutor(new WebhookRetryPolicy(), new TaskWebhookRetryDelay());
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -296,11 +297,18 @@ public sealed class WebhookBackgroundWorker : BackgroundService
                 return;
             }
 
-            attempt = checked(record.AttemptCount + 1);
-            record.AttemptCount = attempt;
+            var claimedRecord = await _store.GetByWebhookIdAsync(workItem.WebhookId, cancellationToken).ConfigureAwait(false);
+            if (claimedRecord is null)
+            {
+                await ReleaseAfterCancellationAsync(workItem.WebhookId).ConfigureAwait(false);
+                claimed = false;
+                return;
+            }
+
+            record = claimedRecord;
+            attempt = record.AttemptCount;
             record.Status = WebhookProcessingStatus.Processing;
             record.ProcessingLeaseOwner = _leaseOwner;
-            record.LastAttemptAt = _clock.UtcNow;
             correlationId = GetCorrelationId(record);
             traceId = Activity.Current?.TraceId.ToString();
             WebhookLogMessages.Processing(
@@ -334,19 +342,31 @@ public sealed class WebhookBackgroundWorker : BackgroundService
                 Headers = record.Headers
             };
 
-            WebhookDispatchResult result;
-            try
-            {
-                result = await processor.DispatchAsync(context, cancellationToken).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch (Exception exception)
-            {
-                result = CreateFailureResult(exception);
-            }
+            var retryOptions = GetRetryOptions(record);
+            var result = await _retryExecutor.ExecuteAsync(
+                processor,
+                context,
+                retryOptions,
+                (currentAttempt, token) => PersistAttemptAsync(record, currentAttempt, token),
+                (currentAttempt, nextDelay, failureCode, _) =>
+                {
+                    WebhookLogMessages.Retry(
+                        _logger,
+                        record.Id,
+                        record.Provider,
+                        record.EventId,
+                        record.EventType,
+                        nameof(WebhookProcessingStatus.Processing),
+                        currentAttempt,
+                        nextDelay,
+                        traceId,
+                        correlationId,
+                        failureCode);
+                    return Task.CompletedTask;
+                },
+                firstAttempt: record.AttemptCount,
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+            attempt = record.AttemptCount;
 
             switch (result.Status)
             {
@@ -396,6 +416,25 @@ public sealed class WebhookBackgroundWorker : BackgroundService
         {
             RemoveScheduled(workItem.WebhookId);
         }
+    }
+
+    private WebhookRetryOptions GetRetryOptions(WebhookRecord record)
+    {
+        return _options.Value.Providers.TryGetValue(record.Provider, out var provider)
+            ? provider.Retry
+            : new WebhookRetryOptions();
+    }
+
+    private async Task PersistAttemptAsync(
+        WebhookRecord record,
+        int attempt,
+        CancellationToken cancellationToken)
+    {
+        record.AttemptCount = attempt;
+        record.LastAttemptAt = _clock.UtcNow;
+        record.Status = WebhookProcessingStatus.Processing;
+        record.ProcessingLeaseOwner = _leaseOwner;
+        await _store.UpdateAsync(record, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task MarkProcessedAsync(
@@ -547,29 +586,8 @@ public sealed class WebhookBackgroundWorker : BackgroundService
             "status-update-failed");
     }
 
-    private static WebhookDispatchResult CreateFailureResult(Exception exception)
-    {
-        var failureKind = exception is WebhookPayloadException
-            ? WebhookDispatchFailureKind.Payload
-            : WebhookDispatchFailureKind.Handler;
-        var failureCode = failureKind == WebhookDispatchFailureKind.Payload
-            ? PayloadFailureCode
-            : HandlerFailureCode;
-        return WebhookDispatchResult.Failed(failureKind, failureCode, exception);
-    }
-
     private static string ResolveFailureCode(WebhookDispatchResult result)
     {
-        if (result.FailureException is WebhookRetryableException)
-        {
-            return RetryableFailureCode;
-        }
-
-        if (result.FailureException is WebhookPermanentException)
-        {
-            return PermanentFailureCode;
-        }
-
         var fallback = result.FailureKind == WebhookDispatchFailureKind.Payload
             ? PayloadFailureCode
             : HandlerFailureCode;

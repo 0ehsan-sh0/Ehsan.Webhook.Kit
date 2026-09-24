@@ -8,6 +8,7 @@ using WebhookKit.Core.Clocks;
 using WebhookKit.Core.Handlers;
 using WebhookKit.Core.Options;
 using WebhookKit.Core.Processing;
+using WebhookKit.Core.Retries;
 
 namespace WebhookKit.Core.DependencyInjection;
 
@@ -71,6 +72,10 @@ public static class WebhookKitServiceCollectionExtensions
             sp.GetRequiredService<Extractors.HeaderEventTypeExtractor>(),
             sp.GetRequiredService<Extractors.JsonEventTypeExtractor>()
         ]));
+
+        services.TryAddSingleton<WebhookRetryPolicy>();
+        services.TryAddSingleton<IWebhookRetryDelay, TaskWebhookRetryDelay>();
+        services.TryAddSingleton<IWebhookRetryExecutor, WebhookRetryExecutor>();
 
         AddProcessingServices(services);
         if (prebuilt.Background is { Enabled: true })

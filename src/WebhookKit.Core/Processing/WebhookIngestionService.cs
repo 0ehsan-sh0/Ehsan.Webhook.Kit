@@ -7,6 +7,7 @@ using WebhookKit.Abstractions;
 using WebhookKit.Core.Deduplication;
 using WebhookKit.Core.Diagnostics;
 using WebhookKit.Core.Options;
+using WebhookKit.Core.Retries;
 
 namespace WebhookKit.Core.Processing;
 
@@ -176,6 +177,7 @@ public sealed class WebhookIngestionService
     private readonly IWebhookClock _clock;
     private readonly IOptions<WebhookKitOptions> _options;
     private readonly IWebhookDispatchProcessor _processor;
+    private readonly IWebhookRetryExecutor _retryExecutor;
     private readonly ILogger<WebhookIngestionService> _logger;
 
     public WebhookIngestionService(
@@ -190,7 +192,8 @@ public sealed class WebhookIngestionService
         IWebhookClock clock,
         IOptions<WebhookKitOptions> options,
         IWebhookDispatchProcessor processor,
-        ILogger<WebhookIngestionService>? logger = null)
+        ILogger<WebhookIngestionService>? logger = null,
+        IWebhookRetryExecutor? retryExecutor = null)
     {
         _signatureVerifier = signatureVerifier ?? throw new ArgumentNullException(nameof(signatureVerifier));
         _timestampVerifier = timestampVerifier ?? throw new ArgumentNullException(nameof(timestampVerifier));
@@ -203,6 +206,7 @@ public sealed class WebhookIngestionService
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _processor = processor ?? throw new ArgumentNullException(nameof(processor));
+        _retryExecutor = retryExecutor ?? new WebhookRetryExecutor(new WebhookRetryPolicy(), new TaskWebhookRetryDelay());
         _logger = logger ?? NullLogger<WebhookIngestionService>.Instance;
     }
 
@@ -235,6 +239,9 @@ public sealed class WebhookIngestionService
         cancellationToken.ThrowIfCancellationRequested();
         var correlationId = ResolveCorrelationId(request.WebhookId, request.CorrelationId, Activity.Current?.TraceId.ToString());
         using var activity = WebhookDiagnostics.StartReceive(request.WebhookId, request.Provider, correlationId);
+        var leaseOwner = Guid.NewGuid().ToString("N");
+        var claimed = false;
+        WebhookRecord? record = null;
 
         try
         {
@@ -246,21 +253,15 @@ public sealed class WebhookIngestionService
                 return admission;
             }
 
-            var record = admission.Record!;
+            record = admission.Record!;
             correlationId = record.CorrelationId ?? correlationId;
             var context = admission.Context!;
-            WebhookDispatchResult dispatchResult;
-            try
-            {
-                dispatchResult = await _processor
-                    .DispatchAsync(context, cancellationToken)
-                    .ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch (Exception exception)
+            claimed = await _store.TryClaimAsync(
+                record.Id,
+                leaseOwner,
+                _options.Value.Background.LeaseDuration,
+                cancellationToken).ConfigureAwait(false);
+            if (!claimed)
             {
                 WebhookLogMessages.Failed(
                     _logger,
@@ -272,12 +273,52 @@ public sealed class WebhookIngestionService
                     record.AttemptCount,
                     traceId,
                     correlationId,
-                    "handler-failed");
-                dispatchResult = WebhookDispatchResult.Failed(
+                    "processing-claim-failed");
+                SetReceiveResult(activity, WebhookIngestionStatus.Failed);
+                return WebhookIngestionResult.CreateFailure(
                     WebhookDispatchFailureKind.Handler,
-                    "handler-failed",
-                    exception);
+                    "processing-claim-failed");
             }
+
+            var claimedRecord = await _store.GetByWebhookIdAsync(record.Id, cancellationToken).ConfigureAwait(false);
+            if (claimedRecord is null)
+            {
+                await ReleaseClaimAsync(record.Id, leaseOwner).ConfigureAwait(false);
+                claimed = false;
+                SetReceiveResult(activity, WebhookIngestionStatus.Failed);
+                return WebhookIngestionResult.CreateFailure(
+                    WebhookDispatchFailureKind.Handler,
+                    "processing-claim-failed");
+            }
+
+            record = claimedRecord;
+            record.Status = WebhookProcessingStatus.Processing;
+            record.ProcessingLeaseOwner = leaseOwner;
+            var retryOptions = GetRetryOptions(record);
+
+            var dispatchResult = await _retryExecutor.ExecuteAsync(
+                _processor,
+                context,
+                retryOptions,
+                (attempt, token) => PersistAttemptAsync(record, leaseOwner, attempt, token),
+                (attempt, nextDelay, failureCode, token) =>
+                {
+                    WebhookLogMessages.Retry(
+                        _logger,
+                        record.Id,
+                        record.Provider,
+                        record.EventId,
+                        record.EventType,
+                        nameof(WebhookProcessingStatus.Processing),
+                        attempt,
+                        nextDelay,
+                        traceId,
+                        correlationId,
+                        failureCode);
+                    return Task.CompletedTask;
+                },
+                firstAttempt: record.AttemptCount,
+                cancellationToken: cancellationToken).ConfigureAwait(false);
 
             var ingestionStatus = dispatchResult.Status switch
             {
@@ -286,34 +327,43 @@ public sealed class WebhookIngestionService
                 _ => WebhookIngestionStatus.Failed
             };
 
-            if (ingestionStatus == WebhookIngestionStatus.Processed)
-            {
-                record.Status = WebhookProcessingStatus.Processed;
-                record.ProcessedAt = _clock.UtcNow;
-                if (_options.Value.Storage.DiscardRawBodyAfterSuccessfulSync)
-                {
-                    record.RawBody = null;
-                }
-            }
-            else if (ingestionStatus == WebhookIngestionStatus.Ignored)
-            {
-                record.Status = WebhookProcessingStatus.Ignored;
-                if (_options.Value.Storage.DiscardRawBodyAfterSuccessfulSync)
-                {
-                    record.RawBody = null;
-                }
-            }
-            else
-            {
-                record.Status = WebhookProcessingStatus.Failed;
-                record.FailureReason = dispatchResult.FailureCode;
-                record.FailureCode = dispatchResult.FailureCode;
-                record.FailedAt = _clock.UtcNow;
-            }
-
             try
             {
-                await _store.UpdateAsync(record, cancellationToken).ConfigureAwait(false);
+                if (ingestionStatus == WebhookIngestionStatus.Processed)
+                {
+                    var processedAt = _clock.UtcNow;
+                    await _store.MarkProcessedAsync(record.Id, leaseOwner, processedAt, cancellationToken).ConfigureAwait(false);
+                    record.Status = WebhookProcessingStatus.Processed;
+                    record.ProcessedAt = processedAt;
+                    record.ProcessingLeaseOwner = null;
+                    record.ProcessingLeaseExpiresAt = null;
+                    if (_options.Value.Storage.DiscardRawBodyAfterSuccessfulSync)
+                    {
+                        record.RawBody = null;
+                        await _store.UpdateAsync(record, cancellationToken).ConfigureAwait(false);
+                    }
+                }
+                else if (ingestionStatus == WebhookIngestionStatus.Ignored)
+                {
+                    if (_options.Value.Storage.DiscardRawBodyAfterSuccessfulSync)
+                    {
+                        record.RawBody = null;
+                    }
+
+                    await MarkIgnoredAsync(record, leaseOwner, cancellationToken).ConfigureAwait(false);
+                }
+                else
+                {
+                    var failedAt = _clock.UtcNow;
+                    var failureCode = dispatchResult.FailureCode ?? "handler-failed";
+                    await _store.MarkFailedAsync(record.Id, leaseOwner, failedAt, failureCode, cancellationToken).ConfigureAwait(false);
+                    record.Status = WebhookProcessingStatus.Failed;
+                    record.FailureReason = failureCode;
+                    record.FailureCode = failureCode;
+                    record.FailedAt = failedAt;
+                    record.ProcessingLeaseOwner = null;
+                    record.ProcessingLeaseExpiresAt = null;
+                }
             }
             catch (OperationCanceledException)
             {
@@ -344,6 +394,11 @@ public sealed class WebhookIngestionService
         }
         catch (OperationCanceledException)
         {
+            if (claimed && record is not null)
+            {
+                await ReleaseClaimAsync(record.Id, leaseOwner).ConfigureAwait(false);
+            }
+
             WebhookDiagnostics.SetResult(activity, "Cancelled", true);
             throw;
         }
@@ -351,6 +406,55 @@ public sealed class WebhookIngestionService
         {
             WebhookDiagnostics.SetResult(activity, nameof(WebhookProcessingStatus.Failed), true);
             throw;
+        }
+    }
+
+    private WebhookRetryOptions GetRetryOptions(WebhookRecord record)
+    {
+        return _options.Value.Providers.TryGetValue(record.Provider, out var provider)
+            ? provider.Retry
+            : new WebhookRetryOptions();
+    }
+
+    private async Task PersistAttemptAsync(
+        WebhookRecord record,
+        string leaseOwner,
+        int attempt,
+        CancellationToken cancellationToken)
+    {
+        record.AttemptCount = attempt;
+        record.LastAttemptAt = _clock.UtcNow;
+        record.Status = WebhookProcessingStatus.Processing;
+        record.ProcessingLeaseOwner = leaseOwner;
+        await _store.UpdateAsync(record, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task MarkIgnoredAsync(
+        WebhookRecord record,
+        string leaseOwner,
+        CancellationToken cancellationToken)
+    {
+        record.Status = WebhookProcessingStatus.Ignored;
+        record.ProcessedAt = null;
+        record.FailedAt = null;
+        record.FailureReason = null;
+        record.FailureCode = null;
+        record.ProcessingLeaseOwner = leaseOwner;
+        await _store.UpdateAsync(record, cancellationToken).ConfigureAwait(false);
+
+        record.ProcessingLeaseOwner = null;
+        record.ProcessingLeaseExpiresAt = null;
+        await _store.UpdateAsync(record, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task ReleaseClaimAsync(string webhookId, string leaseOwner)
+    {
+        try
+        {
+            await _store.ReleaseAsync(webhookId, leaseOwner, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch
+        {
         }
     }
 

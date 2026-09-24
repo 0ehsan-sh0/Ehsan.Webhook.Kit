@@ -1,5 +1,6 @@
 // Copyright (c) Ehsan. Licensed under the MIT License.
 using Microsoft.Extensions.Options;
+using WebhookKit.Core.Retries;
 
 namespace WebhookKit.Core.Options;
 
@@ -180,40 +181,16 @@ public sealed class WebhookKitOptionsValidator : IValidateOptions<WebhookKitOpti
             return ValidateOptionsResult.Fail($"WebhookKit: provider '{providerName}' retry BackoffMultiplier must be at least 1.");
         }
 
-        if (leaseDuration <= CalculateMaximumRetryWindow(retry))
+        if (retry.JitterRatio < 0 || retry.JitterRatio > 1 || double.IsNaN(retry.JitterRatio) || double.IsInfinity(retry.JitterRatio))
+        {
+            return ValidateOptionsResult.Fail($"WebhookKit: provider '{providerName}' retry JitterRatio must be between 0 and 1.");
+        }
+
+        if (leaseDuration <= WebhookRetryPolicy.CalculateMaximumRetryWindow(retry))
         {
             return ValidateOptionsResult.Fail($"WebhookKit: provider '{providerName}' lease duration must exceed its maximum retry window.");
         }
 
         return null;
-    }
-
-    private static TimeSpan CalculateMaximumRetryWindow(WebhookRetryOptions retry)
-    {
-        if (retry.MaxAttempts <= 1 || retry.InitialDelay <= TimeSpan.Zero)
-        {
-            return TimeSpan.Zero;
-        }
-
-        var initialMilliseconds = retry.InitialDelay.TotalMilliseconds;
-        var multiplier = retry.BackoffMultiplier;
-        double totalMilliseconds;
-        if (multiplier == 1)
-        {
-            totalMilliseconds = initialMilliseconds * (retry.MaxAttempts - 1);
-        }
-        else
-        {
-            var attempts = retry.MaxAttempts;
-            totalMilliseconds = initialMilliseconds *
-                ((Math.Pow(multiplier, attempts - 1) - 1) / (multiplier - 1));
-        }
-
-        if (double.IsNaN(totalMilliseconds) || double.IsInfinity(totalMilliseconds) || totalMilliseconds >= TimeSpan.MaxValue.TotalMilliseconds)
-        {
-            return TimeSpan.MaxValue;
-        }
-
-        return TimeSpan.FromMilliseconds(Math.Max(0, totalMilliseconds));
     }
 }

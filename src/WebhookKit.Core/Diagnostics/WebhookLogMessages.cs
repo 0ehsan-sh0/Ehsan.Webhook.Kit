@@ -102,7 +102,7 @@ internal static partial class WebhookLogMessages
         string? correlationId,
         string failureCode);
 
-    [LoggerMessage(EventId = 1809, Level = LogLevel.Warning, Message = "Webhook retry. WebhookId={WebhookId} Provider={Provider} EventId={EventId} EventType={EventType} Status={Status} Attempt={Attempt} TraceId={TraceId} CorrelationId={CorrelationId} FailureCode={FailureCode}")]
+    [LoggerMessage(EventId = 1809, Level = LogLevel.Warning, Message = "Webhook retry. WebhookId={WebhookId} Provider={Provider} EventId={EventId} EventType={EventType} Status={Status} Attempt={Attempt} NextDelay={NextDelay} TraceId={TraceId} CorrelationId={CorrelationId} FailureCode={FailureCode}")]
     public static partial void Retry(
         ILogger logger,
         string webhookId,
@@ -111,6 +111,7 @@ internal static partial class WebhookLogMessages
         string? eventType,
         string status,
         int attempt,
+        TimeSpan nextDelay,
         string? traceId,
         string? correlationId,
         string? failureCode);

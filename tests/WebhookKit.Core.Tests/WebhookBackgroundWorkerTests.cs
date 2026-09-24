@@ -6,6 +6,7 @@ using System.Threading.Channels;
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using WebhookKit.Abstractions;
 using WebhookKit.Abstractions.Exceptions;
@@ -13,6 +14,7 @@ using WebhookKit.Core.DependencyInjection;
 using WebhookKit.Core.Options;
 using WebhookKit.Core.Processing;
 using WebhookKit.Core.Queues;
+using WebhookKit.Core.Retries;
 using WebhookKit.Core.Stores;
 using WebhookKit.Core.Workers;
 using WebhookKit.Testing;
@@ -197,11 +199,18 @@ public sealed class WebhookBackgroundWorkerTests
     }
 
     [Fact]
-    public async Task StartAsync_WhenDispatchThrowsRetryableException_MarksFixedTerminalCodeWithoutRetry()
+    public async Task StartAsync_WhenDispatchThrowsRetryableException_RetriesAndPersistsSafeExhaustion()
     {
         var store = CreateStore();
         var options = CreateOptions();
-        await using var harness = await WorkerHarness.StartAsync(options, store, dispatch: (_, _) => throw new WebhookRetryableException());
+        var delay = new RecordingRetryDelay();
+        var logs = new CapturingLogger<WebhookBackgroundWorker>();
+        await using var harness = await WorkerHarness.StartAsync(
+            options,
+            store,
+            dispatch: (_, _) => throw new WebhookRetryableException("secret retry detail"),
+            retryExecutor: new WebhookRetryExecutor(new WebhookRetryPolicy(() => 0), delay),
+            logger: logs);
         var record = CreateRecord("webhook-retryable");
         await store.Inner.TryCreateAsync(record);
         await harness.Queue.TryEnqueueAsync(new WebhookWorkItem(record.Id, record.Provider));
@@ -210,8 +219,47 @@ public sealed class WebhookBackgroundWorkerTests
         var stored = await store.GetByWebhookIdAsync(record.Id);
         stored!.Status.Should().Be(WebhookProcessingStatus.Failed);
         stored.FailureCode.Should().Be("retryable-failure");
-        stored.AttemptCount.Should().Be(1);
-        harness.Probe.DispatchCount.Should().Be(1);
+        stored.FailureReason.Should().NotContain("secret retry detail");
+        stored.AttemptCount.Should().Be(3);
+        stored.LastAttemptAt.Should().NotBeNull();
+        stored.ProcessingLeaseOwner.Should().BeNull();
+        harness.Probe.DispatchCount.Should().Be(3);
+        delay.Delays.Should().Equal(TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(4));
+        logs.Entries.Should().Contain(entry => entry.EventId == 1809 && Equals(entry.Get("Attempt"), 1));
+        logs.Entries.Should().Contain(entry => entry.EventId == 1809 && Equals(entry.Get("Attempt"), 2));
+        logs.Entries.Should().OnlyContain(entry => entry.Exception == null);
+        logs.Entries.Should().OnlyContain(entry => !entry.GetAllText().Contains("secret retry detail", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task StartAsync_RetryDelayRetainsLeaseOwnerAndAttemptStateUntilTerminalTransition()
+    {
+        var store = CreateStore();
+        var options = CreateOptions();
+        var delay = new RecordingRetryDelay(block: true);
+        await using var harness = await WorkerHarness.StartAsync(
+            options,
+            store,
+            dispatch: (_, _) => throw new WebhookRetryableException(),
+            retryExecutor: new WebhookRetryExecutor(new WebhookRetryPolicy(() => 0), delay));
+        var record = CreateRecord("webhook-retry-lease");
+        await store.Inner.TryCreateAsync(record);
+        await harness.Queue.TryEnqueueAsync(new WebhookWorkItem(record.Id, record.Provider));
+        await delay.Entered.Task.WaitAsync(TestTimeout);
+
+        var processing = await store.GetByWebhookIdAsync(record.Id);
+        processing!.Status.Should().Be(WebhookProcessingStatus.Processing);
+        processing.AttemptCount.Should().Be(1);
+        processing.LastAttemptAt.Should().NotBeNull();
+        processing.ProcessingLeaseOwner.Should().NotBeNullOrWhiteSpace();
+        processing.ProcessingLeaseExpiresAt.Should().NotBeNull();
+
+        using var cancellation = new CancellationTokenSource(TestTimeout);
+        await harness.Worker.StopAsync(cancellation.Token);
+        await store.Released.Task.WaitAsync(TestTimeout);
+        var released = await store.GetByWebhookIdAsync(record.Id);
+        released!.Status.Should().Be(WebhookProcessingStatus.Received);
+        released.ProcessingLeaseOwner.Should().BeNull();
     }
 
     [Fact]
@@ -636,11 +684,14 @@ public sealed class WebhookBackgroundWorkerTests
             ObservingStore store,
             IWebhookQueue? queue = null,
             IWebhookClock? clock = null,
-            Func<WebhookContext, CancellationToken, Task<WebhookDispatchResult>>? dispatch = null)
+            Func<WebhookContext, CancellationToken, Task<WebhookDispatchResult>>? dispatch = null,
+            IWebhookRetryExecutor? retryExecutor = null,
+            ILogger<WebhookBackgroundWorker>? logger = null)
         {
             var actualClock = clock ?? new FakeWebhookClock(FixedNow);
             var actualQueue = queue ?? new ChannelWebhookQueue(Microsoft.Extensions.Options.Options.Create(options));
             var probe = new DispatchProbe();
+            var actualRetryExecutor = retryExecutor ?? new WebhookRetryExecutor(new WebhookRetryPolicy(() => 0), new RecordingRetryDelay());
             var services = new ServiceCollection();
             services.AddSingleton<IWebhookStore>(store);
             services.AddSingleton<IWebhookQueue>(actualQueue);
@@ -658,7 +709,10 @@ public sealed class WebhookBackgroundWorkerTests
                 store,
                 provider.GetRequiredService<IServiceScopeFactory>(),
                 Microsoft.Extensions.Options.Options.Create(options),
-                actualClock);
+                actualClock,
+                logger,
+                timeProvider: null,
+                retryExecutor: actualRetryExecutor);
             var harness = new WorkerHarness(provider, worker, store, actualQueue, probe);
             await worker.StartAsync(CancellationToken.None);
             return harness;
@@ -856,6 +910,70 @@ public sealed class WebhookBackgroundWorkerTests
         public Task<WebhookDispatchResult> DispatchAsync(WebhookContext context, CancellationToken cancellationToken = default)
         {
             return probe.DispatchAsync(marker, context, behavior, cancellationToken);
+        }
+    }
+
+    private sealed class RecordingRetryDelay(bool block = false) : IWebhookRetryDelay
+    {
+        public List<TimeSpan> Delays { get; } = [];
+
+        public TaskCompletionSource<bool> Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public async Task DelayAsync(TimeSpan delay, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Delays.Add(delay);
+            Entered.TrySetResult(true);
+            if (block)
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            }
+        }
+    }
+
+    private sealed class CapturingLogger<T> : ILogger<T>
+    {
+        public List<CapturedLog> Entries { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull
+        {
+            return null;
+        }
+
+        public bool IsEnabled(LogLevel logLevel)
+        {
+            return true;
+        }
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            var values = state is IEnumerable<KeyValuePair<string, object?>> entries
+                ? entries.ToArray()
+                : [];
+            Entries.Add(new CapturedLog(eventId, values, exception, formatter(state, exception)));
+        }
+    }
+
+    private sealed record CapturedLog(
+        EventId EventId,
+        IReadOnlyList<KeyValuePair<string, object?>> Values,
+        Exception? Exception,
+        string Text)
+    {
+        public object? Get(string name)
+        {
+            return Values.FirstOrDefault(pair => string.Equals(pair.Key, name, StringComparison.Ordinal)).Value;
+        }
+
+        public string GetAllText()
+        {
+            return Text + "|" + string.Join("|", Values.Select(pair => $"{pair.Key}={pair.Value}"));
         }
     }
 
