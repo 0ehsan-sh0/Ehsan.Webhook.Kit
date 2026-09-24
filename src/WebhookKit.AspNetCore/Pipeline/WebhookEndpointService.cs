@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using WebhookKit.Abstractions;
 using WebhookKit.AspNetCore.Exceptions;
+using WebhookKit.AspNetCore.Responses;
 using WebhookKit.Core.Options;
 using WebhookKit.Core.Processing;
 
@@ -16,19 +17,22 @@ public sealed class WebhookEndpointService : IWebhookEndpointService
     private readonly IWebhookIdGenerator _idGenerator;
     private readonly IOptions<WebhookKitOptions> _options;
     private readonly IServiceProvider _services;
+    private readonly WebhookResponseWriter _responseWriter;
 
     public WebhookEndpointService(
         IWebhookBodyReader bodyReader,
         WebhookIngestionService ingestionService,
         IWebhookIdGenerator idGenerator,
         IOptions<WebhookKitOptions> options,
-        IServiceProvider services)
+        IServiceProvider services,
+        WebhookResponseWriter? responseWriter = null)
     {
         _bodyReader = bodyReader ?? throw new ArgumentNullException(nameof(bodyReader));
         _ingestionService = ingestionService ?? throw new ArgumentNullException(nameof(ingestionService));
         _idGenerator = idGenerator ?? throw new ArgumentNullException(nameof(idGenerator));
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _services = services ?? throw new ArgumentNullException(nameof(services));
+        _responseWriter = responseWriter ?? new WebhookResponseWriter(new DefaultWebhookResponseFormatter());
     }
 
     public async Task<WebhookEndpointResult> ProcessAsync(
@@ -43,25 +47,25 @@ public sealed class WebhookEndpointService : IWebhookEndpointService
 
         if (!_options.Value.Providers.TryGetValue(options.ProviderName, out var providerOptions))
         {
-            return Complete(
+            return await CompleteAsync(
                 context,
                 options,
                 WebhookEndpointOutcome.ConfigurationError,
                 StatusCodes.Status500InternalServerError,
                 "webhook-configuration-error",
-                "Webhook processing is not configured.");
+                "Webhook processing is not configured.", cancellationToken: cancellationToken);
         }
 
         var maxBodySize = providerOptions.MaxRequestBodySizeBytes ?? _options.Value.MaxRequestBodySizeBytes;
         if (maxBodySize <= 0)
         {
-            return Complete(
+            return await CompleteAsync(
                 context,
                 options,
                 WebhookEndpointOutcome.ConfigurationError,
                 StatusCodes.Status500InternalServerError,
                 "webhook-configuration-error",
-                "Webhook processing is not configured.");
+                "Webhook processing is not configured.", cancellationToken: cancellationToken);
         }
 
         if (options.Mode == WebhookProcessingMode.Asynchronous && !_options.Value.Storage.PersistRawBody)
@@ -82,23 +86,23 @@ public sealed class WebhookEndpointService : IWebhookEndpointService
         }
         catch (WebhookPayloadTooLargeException)
         {
-            return Complete(
+            return await CompleteAsync(
                 context,
                 options,
                 WebhookEndpointOutcome.PayloadTooLarge,
                 StatusCodes.Status413PayloadTooLarge,
                 "payload-too-large",
-                "Webhook payload is too large.");
+                "Webhook payload is too large.", cancellationToken: cancellationToken);
         }
         catch (Exception)
         {
-            return Complete(
+            return await CompleteAsync(
                 context,
                 options,
                 WebhookEndpointOutcome.ProcessingFailed,
                 StatusCodes.Status500InternalServerError,
                 "body-read-failed",
-                "Webhook processing failed.");
+                "Webhook processing failed.", cancellationToken: cancellationToken);
         }
 
         string webhookId;
@@ -112,13 +116,13 @@ public sealed class WebhookEndpointService : IWebhookEndpointService
         }
         catch (Exception)
         {
-            return Complete(
+            return await CompleteAsync(
                 context,
                 options,
                 WebhookEndpointOutcome.ProcessingFailed,
                 StatusCodes.Status500InternalServerError,
                 "id-generation-failed",
-                "Webhook processing failed.");
+                "Webhook processing failed.", cancellationToken: cancellationToken);
         }
 
         IReadOnlyDictionary<string, string[]> headers;
@@ -132,13 +136,13 @@ public sealed class WebhookEndpointService : IWebhookEndpointService
         }
         catch (Exception)
         {
-            return Complete(
+            return await CompleteAsync(
                 context,
                 options,
                 WebhookEndpointOutcome.ProcessingFailed,
                 StatusCodes.Status500InternalServerError,
                 "request-read-failed",
-                "Webhook processing failed.");
+                "Webhook processing failed.", cancellationToken: cancellationToken);
         }
 
         var request = new WebhookIngestionRequest
@@ -166,17 +170,17 @@ public sealed class WebhookEndpointService : IWebhookEndpointService
             }
             catch (Exception)
             {
-                return Complete(
+                return await CompleteAsync(
                     context,
                     options,
                     WebhookEndpointOutcome.ProcessingFailed,
                     StatusCodes.Status500InternalServerError,
                     "admission-failed",
-                    "Webhook processing failed.");
+                    "Webhook processing failed.", cancellationToken: cancellationToken);
             }
             if (admission.Status != WebhookIngestionStatus.Accepted)
             {
-                return MapIngestionResult(context, options, admission);
+                return await MapIngestionResult(context, options, admission, cancellationToken);
             }
 
             IWebhookQueue? queue;
@@ -195,13 +199,13 @@ public sealed class WebhookEndpointService : IWebhookEndpointService
 
             if (queue is null)
             {
-                return Complete(
+                return await CompleteAsync(
                     context,
                     options,
                     WebhookEndpointOutcome.QueueUnavailable,
                     StatusCodes.Status503ServiceUnavailable,
                     "queue-unavailable",
-                    "Webhook processing is temporarily unavailable.");
+                    "Webhook processing is temporarily unavailable.", cancellationToken: cancellationToken);
             }
 
             try
@@ -211,13 +215,13 @@ public sealed class WebhookEndpointService : IWebhookEndpointService
                     cancellationToken).ConfigureAwait(false);
                 if (!enqueued)
                 {
-                    return Complete(
+                    return await CompleteAsync(
                         context,
                         options,
                         WebhookEndpointOutcome.QueueUnavailable,
                         StatusCodes.Status503ServiceUnavailable,
                         "queue-unavailable",
-                        "Webhook processing is temporarily unavailable.");
+                        "Webhook processing is temporarily unavailable.", cancellationToken: cancellationToken);
                 }
 
                 cancellationToken.ThrowIfCancellationRequested();
@@ -228,23 +232,24 @@ public sealed class WebhookEndpointService : IWebhookEndpointService
             }
             catch (Exception)
             {
-                return Complete(
+                return await CompleteAsync(
                     context,
                     options,
                     WebhookEndpointOutcome.QueueUnavailable,
                     StatusCodes.Status503ServiceUnavailable,
                     "queue-unavailable",
-                    "Webhook processing is temporarily unavailable.");
+                    "Webhook processing is temporarily unavailable.", cancellationToken: cancellationToken);
             }
 
-            return Complete(
+            return await CompleteAsync(
                 context,
                 options,
                 WebhookEndpointOutcome.Accepted,
                 StatusCodes.Status202Accepted,
                 "accepted",
                 "Webhook accepted.",
-                admission.Context);
+                admission.Context,
+                cancellationToken: cancellationToken);
         }
 
         WebhookIngestionResult ingestionResult;
@@ -258,158 +263,176 @@ public sealed class WebhookEndpointService : IWebhookEndpointService
         }
         catch (Exception)
         {
-            return Complete(
+            return await CompleteAsync(
                 context,
                 options,
                 WebhookEndpointOutcome.ProcessingFailed,
                 StatusCodes.Status500InternalServerError,
                 "processing-failed",
-                "Webhook processing failed.");
+                "Webhook processing failed.", cancellationToken: cancellationToken);
         }
 
-        return MapIngestionResult(context, options, ingestionResult);
+        return await MapIngestionResult(context, options, ingestionResult, cancellationToken);
     }
 
-    private static WebhookEndpointResult MapIngestionResult(
+    private Task<WebhookEndpointResult> MapIngestionResult(
         HttpContext context,
         WebhookEndpointOptions options,
-        WebhookIngestionResult result)
+        WebhookIngestionResult result,
+        CancellationToken cancellationToken)
     {
         var asynchronous = options.Mode == WebhookProcessingMode.Asynchronous;
         return result.Status switch
         {
-            WebhookIngestionStatus.Processed => Complete(
+            WebhookIngestionStatus.Processed => CompleteAsync(
                 context,
                 options,
                 WebhookEndpointOutcome.Processed,
                 StatusCodes.Status200OK,
                 "processed",
                 "Webhook processed.",
-                result.Context),
-            WebhookIngestionStatus.Accepted => Complete(
+                result.Context,
+                cancellationToken: cancellationToken),
+            WebhookIngestionStatus.Accepted => CompleteAsync(
                 context,
                 options,
                 asynchronous ? WebhookEndpointOutcome.Accepted : WebhookEndpointOutcome.Processed,
                 asynchronous ? StatusCodes.Status202Accepted : StatusCodes.Status200OK,
                 asynchronous ? "accepted" : "processed",
                 asynchronous ? "Webhook accepted." : "Webhook processed.",
-                result.Context),
-            WebhookIngestionStatus.Duplicate => Complete(
+                result.Context,
+                cancellationToken: cancellationToken),
+            WebhookIngestionStatus.Duplicate => CompleteAsync(
                 context,
                 options,
                 WebhookEndpointOutcome.Duplicate,
                 asynchronous ? StatusCodes.Status202Accepted : StatusCodes.Status200OK,
                 "duplicate",
-                "Webhook already received."),
-            WebhookIngestionStatus.Ignored => Complete(
+                "Webhook already received.",
+                cancellationToken: cancellationToken),
+            WebhookIngestionStatus.Ignored => CompleteAsync(
                 context,
                 options,
                 WebhookEndpointOutcome.Ignored,
                 asynchronous ? StatusCodes.Status202Accepted : StatusCodes.Status200OK,
                 "ignored",
                 "Webhook ignored.",
-                result.Context),
-            WebhookIngestionStatus.Rejected => MapRejected(context, options, result.FailureCode),
-            WebhookIngestionStatus.Failed => MapFailure(context, options, result),
-            _ => Complete(
+                result.Context,
+                cancellationToken: cancellationToken),
+            WebhookIngestionStatus.Rejected => MapRejected(context, options, result.FailureCode, cancellationToken),
+            WebhookIngestionStatus.Failed => MapFailure(context, options, result, cancellationToken),
+            _ => CompleteAsync(
                 context,
                 options,
                 WebhookEndpointOutcome.ProcessingFailed,
                 StatusCodes.Status500InternalServerError,
                 "processing-failed",
-                "Webhook processing failed.")
+                "Webhook processing failed.",
+                cancellationToken: cancellationToken)
         };
     }
 
-    private static WebhookEndpointResult MapRejected(
+    private Task<WebhookEndpointResult> MapRejected(
         HttpContext context,
         WebhookEndpointOptions options,
-        string? failureCode)
+        string? failureCode,
+        CancellationToken cancellationToken)
     {
         return failureCode == "signature-verification-failed"
-            ? Complete(
+            ? CompleteAsync(
                 context,
                 options,
                 WebhookEndpointOutcome.InvalidSignature,
                 StatusCodes.Status401Unauthorized,
                 "signature-verification-failed",
-                "Webhook signature verification failed.")
-            : Complete(
+                "Webhook signature verification failed.",
+                cancellationToken: cancellationToken)
+            : CompleteAsync(
                 context,
                 options,
                 WebhookEndpointOutcome.InvalidTimestamp,
                 StatusCodes.Status400BadRequest,
                 "timestamp-verification-failed",
-                "Webhook timestamp verification failed.");
+                "Webhook timestamp verification failed.",
+                cancellationToken: cancellationToken);
     }
 
-    private static WebhookEndpointResult MapFailure(
+    private Task<WebhookEndpointResult> MapFailure(
         HttpContext context,
         WebhookEndpointOptions options,
-        WebhookIngestionResult result)
+        WebhookIngestionResult result,
+        CancellationToken cancellationToken)
     {
         return result.FailureCode switch
         {
-            "event-id-required" => Complete(
+            "event-id-required" => CompleteAsync(
                 context,
                 options,
                 WebhookEndpointOutcome.MissingEventId,
                 StatusCodes.Status400BadRequest,
                 "event-id-required",
-                "Webhook event identifier is required."),
-            "missing-event-type" => Complete(
+                "Webhook event identifier is required.",
+                cancellationToken: cancellationToken),
+            "missing-event-type" => CompleteAsync(
                 context,
                 options,
                 WebhookEndpointOutcome.MissingEventType,
                 StatusCodes.Status400BadRequest,
                 "missing-event-type",
-                "Webhook event type is required."),
-            "event-id-extraction-failed" or "event-type-extraction-failed" or "payload-invalid" => Complete(
+                "Webhook event type is required.",
+                cancellationToken: cancellationToken),
+            "event-id-extraction-failed" or "event-type-extraction-failed" or "payload-invalid" => CompleteAsync(
                 context,
                 options,
                 WebhookEndpointOutcome.PayloadInvalid,
                 StatusCodes.Status400BadRequest,
                 "payload-invalid",
-                "Webhook payload is invalid."),
-            "signature-verification-failed" => Complete(
+                "Webhook payload is invalid.",
+                cancellationToken: cancellationToken),
+            "signature-verification-failed" => CompleteAsync(
                 context,
                 options,
                 WebhookEndpointOutcome.InvalidSignature,
                 StatusCodes.Status401Unauthorized,
                 "signature-verification-failed",
-                "Webhook signature verification failed."),
-            "timestamp-verification-failed" => Complete(
+                "Webhook signature verification failed.",
+                cancellationToken: cancellationToken),
+            "timestamp-verification-failed" => CompleteAsync(
                 context,
                 options,
                 WebhookEndpointOutcome.InvalidTimestamp,
                 StatusCodes.Status400BadRequest,
                 "timestamp-verification-failed",
-                "Webhook timestamp verification failed."),
-            "provider-not-configured" => Complete(
+                "Webhook timestamp verification failed.",
+                cancellationToken: cancellationToken),
+            "provider-not-configured" => CompleteAsync(
                 context,
                 options,
                 WebhookEndpointOutcome.ConfigurationError,
                 StatusCodes.Status500InternalServerError,
                 "webhook-configuration-error",
-                "Webhook processing is not configured."),
-            _ => Complete(
+                "Webhook processing is not configured.",
+                cancellationToken: cancellationToken),
+            _ => CompleteAsync(
                 context,
                 options,
                 WebhookEndpointOutcome.ProcessingFailed,
                 StatusCodes.Status500InternalServerError,
                 "handler-failed",
-                "Webhook processing failed.")
+                "Webhook processing failed.",
+                cancellationToken: cancellationToken)
         };
     }
 
-    private static WebhookEndpointResult Complete(
+    private async Task<WebhookEndpointResult> CompleteAsync(
         HttpContext context,
         WebhookEndpointOptions options,
         WebhookEndpointOutcome outcome,
         int defaultStatusCode,
         string code,
         string message,
-        WebhookContext? webhookContext = null)
+        WebhookContext? webhookContext = null,
+        CancellationToken cancellationToken = default)
     {
         var result = WebhookEndpointResult.Create(
             context,
@@ -419,7 +442,7 @@ public sealed class WebhookEndpointService : IWebhookEndpointService
             message,
             webhookContext,
             options);
-        context.Response.StatusCode = result.StatusCode;
+        await _responseWriter.WriteAsync(context, result, cancellationToken).ConfigureAwait(false);
         return result;
     }
 

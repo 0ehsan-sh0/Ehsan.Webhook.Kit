@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using WebhookKit.Abstractions;
 using WebhookKit.AspNetCore.Pipeline;
+using WebhookKit.AspNetCore.Responses;
 
 namespace WebhookKit.AspNetCore.Mvc;
 
@@ -20,10 +21,14 @@ public sealed class WebhookEndpointFilter : IAsyncResourceFilter
         WebhookEndpointActionPolicy.Ignored;
 
     private readonly IWebhookEndpointService _endpointService;
+    private readonly WebhookResponseWriter _responseWriter;
 
-    public WebhookEndpointFilter(IWebhookEndpointService endpointService)
+    public WebhookEndpointFilter(
+        IWebhookEndpointService endpointService,
+        WebhookResponseWriter? responseWriter = null)
     {
         _endpointService = endpointService ?? throw new ArgumentNullException(nameof(endpointService));
+        _responseWriter = responseWriter ?? new WebhookResponseWriter(new DefaultWebhookResponseFormatter());
     }
 
     public async Task OnResourceExecutionAsync(
@@ -40,7 +45,7 @@ public sealed class WebhookEndpointFilter : IAsyncResourceFilter
         var policy = attribute.ActionPolicy;
         if ((policy & ~SupportedPolicy) != 0)
         {
-            SetSafeConfigurationFailure(context);
+            await SetSafeConfigurationFailureAsync(context);
             return;
         }
 
@@ -51,7 +56,7 @@ public sealed class WebhookEndpointFilter : IAsyncResourceFilter
         }
         catch (ArgumentException)
         {
-            SetSafeConfigurationFailure(context);
+            await SetSafeConfigurationFailureAsync(context);
             return;
         }
 
@@ -62,13 +67,18 @@ public sealed class WebhookEndpointFilter : IAsyncResourceFilter
 
         if (!ShouldExecute(policy, result.Outcome))
         {
-            context.Result = new StatusCodeResult(result.StatusCode);
+            if (!context.HttpContext.Response.HasStarted)
+            {
+                context.HttpContext.Response.StatusCode = result.StatusCode;
+            }
+
+            context.Result = new EmptyResult();
             return;
         }
 
         if (!TryValidateContextContract(context, result.Context))
         {
-            SetSafeConfigurationFailure(context);
+            await SetSafeConfigurationFailureAsync(context);
             return;
         }
 
@@ -121,9 +131,23 @@ public sealed class WebhookEndpointFilter : IAsyncResourceFilter
         return true;
     }
 
-    private static void SetSafeConfigurationFailure(ResourceExecutingContext context)
+    private async Task SetSafeConfigurationFailureAsync(ResourceExecutingContext context)
     {
-        context.Result = new StatusCodeResult(StatusCodes.Status500InternalServerError);
+        var options = new WebhookEndpointOptions("configuration");
+        var result = WebhookEndpointResult.Create(
+            context.HttpContext,
+            WebhookEndpointOutcome.ConfigurationError,
+            StatusCodes.Status500InternalServerError,
+            "webhook-configuration-error",
+            "Webhook processing is not configured.",
+            null,
+            options);
+        await _responseWriter.WriteAsync(
+                context.HttpContext,
+                result,
+                context.HttpContext.RequestAborted)
+            .ConfigureAwait(false);
+        context.Result = new EmptyResult();
     }
 }
 

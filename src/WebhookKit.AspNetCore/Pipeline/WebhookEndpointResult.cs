@@ -4,29 +4,6 @@ using WebhookKit.Abstractions;
 
 namespace WebhookKit.AspNetCore.Pipeline;
 
-public enum WebhookEndpointOutcome
-{
-    Processed = 0,
-    Accepted = 1,
-    Duplicate = 2,
-    Ignored = 3,
-    InvalidSignature = 4,
-    InvalidTimestamp = 5,
-    MissingEventId = 6,
-    MissingEventType = 7,
-    PayloadInvalid = 8,
-    PayloadTooLarge = 9,
-    QueueUnavailable = 10,
-    ProcessingFailed = 11,
-    ConfigurationError = 12,
-    SignatureVerificationFailed = InvalidSignature,
-    ReplayFailed = InvalidTimestamp,
-    MissingTimestamp = InvalidTimestamp,
-    PayloadFailure = PayloadInvalid,
-    QueueFull = QueueUnavailable,
-    ProcessingFailure = ProcessingFailed
-}
-
 public sealed class WebhookEndpointResult
 {
     private WebhookEndpointResult(
@@ -92,6 +69,12 @@ public sealed class WebhookEndpointResult
             traceId = httpContext.TraceIdentifier;
         }
 
-        return new WebhookEndpointResult(outcome, statusCode, code, message, traceId, context);
+        return new WebhookEndpointResult(
+            outcome,
+            statusCode,
+            code,
+            message,
+            string.IsNullOrWhiteSpace(traceId) ? null : traceId,
+            context);
     }
 }

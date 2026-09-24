@@ -2,8 +2,10 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using WebhookKit.Abstractions;
 using WebhookKit.AspNetCore.Mvc;
 using WebhookKit.AspNetCore.Pipeline;
+using WebhookKit.AspNetCore.Responses;
 
 namespace WebhookKit.AspNetCore.DependencyInjection;
 
@@ -26,6 +28,8 @@ public static class WebhookKitAspNetCoreServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
         services.AddWebhookBodyReader();
+        services.TryAddSingleton<IWebhookResponseFormatter, DefaultWebhookResponseFormatter>();
+        services.TryAddSingleton<WebhookResponseWriter>();
         services.TryAddScoped<WebhookEndpointService>();
         services.TryAddScoped<IWebhookEndpointService>(sp => sp.GetRequiredService<WebhookEndpointService>());
         services.TryAddScoped<WebhookEndpointFilter>();

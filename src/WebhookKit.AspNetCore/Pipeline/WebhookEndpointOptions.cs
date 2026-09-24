@@ -1,3 +1,5 @@
+using WebhookKit.Abstractions;
+
 namespace WebhookKit.AspNetCore.Pipeline;
 
 public enum WebhookProcessingMode

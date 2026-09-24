@@ -31,7 +31,10 @@ public static class WebhookEndpointRouteBuilderExtensions
             async (HttpContext context, IWebhookEndpointService service, CancellationToken cancellationToken) =>
             {
                 var result = await service.ProcessAsync(context, snapshot, cancellationToken).ConfigureAwait(false);
-                return Results.StatusCode(result.StatusCode);
+                if (!context.Response.HasStarted)
+                {
+                    context.Response.StatusCode = result.StatusCode;
+                }
             });
 
         builder.WithMetadata(new WebhookEndpointMetadata(snapshot));
