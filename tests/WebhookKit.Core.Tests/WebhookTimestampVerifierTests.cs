@@ -43,7 +43,7 @@ public sealed class WebhookTimestampVerifierTests
         {
             Provider = ProviderName,
             RawBody = [],
-            Headers = new Dictionary<string, string[]>
+            Headers = new Dictionary<string, IReadOnlyList<string>>
             {
                 [HeaderName] = [epochSeconds.ToString(CultureInfo.InvariantCulture)]
             }
@@ -51,6 +51,28 @@ public sealed class WebhookTimestampVerifierTests
 
         var result = await verifier.VerifyAsync(context);
         result.IsValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task VerifyAsync_ValidTimestamp_ReturnsExactParsedProviderTimestamp()
+    {
+        var (verifier, _) = CreateVerifier();
+        const long epochSeconds = 1_790_078_280L;
+        var expected = DateTimeOffset.FromUnixTimeSeconds(epochSeconds);
+        var context = new WebhookVerificationContext
+        {
+            Provider = ProviderName,
+            RawBody = [],
+            Headers = new Dictionary<string, IReadOnlyList<string>>
+            {
+                [HeaderName] = [epochSeconds.ToString(CultureInfo.InvariantCulture)]
+            }
+        };
+
+        var result = await verifier.VerifyAsync(context);
+
+        result.IsValid.Should().BeTrue();
+        result.ProviderTimestamp.Should().Be(expected);
     }
 
     [Fact]
@@ -63,7 +85,7 @@ public sealed class WebhookTimestampVerifierTests
         {
             Provider = ProviderName,
             RawBody = [],
-            Headers = new Dictionary<string, string[]>
+            Headers = new Dictionary<string, IReadOnlyList<string>>
             {
                 [HeaderName] = [epochMs.ToString(CultureInfo.InvariantCulture)]
             }
@@ -83,7 +105,7 @@ public sealed class WebhookTimestampVerifierTests
         {
             Provider = ProviderName,
             RawBody = [],
-            Headers = new Dictionary<string, string[]>
+            Headers = new Dictionary<string, IReadOnlyList<string>>
             {
                 [HeaderName] = [isoString]
             }
@@ -104,7 +126,7 @@ public sealed class WebhookTimestampVerifierTests
         {
             Provider = ProviderName,
             RawBody = [],
-            Headers = new Dictionary<string, string[]>
+            Headers = new Dictionary<string, IReadOnlyList<string>>
             {
                 [HeaderName] = [expiredEpoch.ToString(CultureInfo.InvariantCulture)]
             }
@@ -126,7 +148,7 @@ public sealed class WebhookTimestampVerifierTests
         {
             Provider = ProviderName,
             RawBody = [],
-            Headers = new Dictionary<string, string[]>
+            Headers = new Dictionary<string, IReadOnlyList<string>>
             {
                 [HeaderName] = [futureEpoch.ToString(CultureInfo.InvariantCulture)]
             }
@@ -147,7 +169,7 @@ public sealed class WebhookTimestampVerifierTests
         {
             Provider = ProviderName,
             RawBody = [],
-            Headers = new Dictionary<string, string[]>
+            Headers = new Dictionary<string, IReadOnlyList<string>>
             {
                 [HeaderName] = [originalTimestamp.ToString(CultureInfo.InvariantCulture)]
             }
@@ -173,7 +195,7 @@ public sealed class WebhookTimestampVerifierTests
         {
             Provider = ProviderName,
             RawBody = [],
-            Headers = new Dictionary<string, string[]>()
+            Headers = new Dictionary<string, IReadOnlyList<string>>()
         };
 
         var result = await verifier.VerifyAsync(context);
@@ -189,7 +211,7 @@ public sealed class WebhookTimestampVerifierTests
         {
             Provider = ProviderName,
             RawBody = [],
-            Headers = new Dictionary<string, string[]>()
+            Headers = new Dictionary<string, IReadOnlyList<string>>()
         };
 
         var result = await verifier.VerifyAsync(context);
@@ -204,7 +226,7 @@ public sealed class WebhookTimestampVerifierTests
         {
             Provider = ProviderName,
             RawBody = [],
-            Headers = new Dictionary<string, string[]>
+            Headers = new Dictionary<string, IReadOnlyList<string>>
             {
                 [HeaderName] = ["not-a-timestamp"]
             }
@@ -216,14 +238,32 @@ public sealed class WebhookTimestampVerifierTests
     }
 
     [Fact]
-    public async Task VerifyAsync_UnconfiguredProvider_Succeeds()
+    public async Task VerifyAsync_UnconfiguredProvider_FailsWhenMissingProtectionIsNotAllowed()
     {
         var (verifier, _) = CreateVerifier();
         var context = new WebhookVerificationContext
         {
             Provider = "unconfigured",
             RawBody = [],
-            Headers = new Dictionary<string, string[]>()
+            Headers = new Dictionary<string, IReadOnlyList<string>>()
+        };
+
+        var result = await verifier.VerifyAsync(context);
+        result.IsValid.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task VerifyAsync_UnconfiguredProvider_SucceedsWithExplicitOptOut()
+    {
+        var clock = new FakeWebhookClock(_fixedTime);
+        var options = new WebhookKitOptions();
+        options.AddProvider("unconfigured", provider => provider.Timestamp.AllowMissing = true);
+        var verifier = new WebhookTimestampVerifier(Microsoft.Extensions.Options.Options.Create(options), clock);
+        var context = new WebhookVerificationContext
+        {
+            Provider = "unconfigured",
+            RawBody = [],
+            Headers = new Dictionary<string, IReadOnlyList<string>>()
         };
 
         var result = await verifier.VerifyAsync(context);

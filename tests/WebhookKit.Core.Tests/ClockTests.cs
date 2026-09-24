@@ -1,7 +1,10 @@
 // Copyright (c) Ehsan. Licensed under the MIT License.
 using FluentAssertions;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
+using WebhookKit.Abstractions;
 using WebhookKit.Core.Clocks;
+using WebhookKit.Core.DependencyInjection;
 using WebhookKit.Testing;
 
 namespace WebhookKit.Core.Tests;
@@ -34,6 +37,19 @@ public sealed class ClockTests
         var next = start.AddHours(1);
         clock.UtcNow = next;
         clock.UtcNow.Should().Be(next);
+    }
+
+    [Fact]
+    public void AddWebhookKit_PreservesCustomClockRegisteredBeforeDefaults()
+    {
+        var customClock = new FakeWebhookClock(new DateTimeOffset(2026, 9, 24, 0, 0, 0, TimeSpan.Zero));
+        var services = new ServiceCollection();
+        services.AddSingleton<IWebhookClock>(customClock);
+
+        services.AddWebhookKit();
+        using var provider = services.BuildServiceProvider();
+
+        provider.GetRequiredService<IWebhookClock>().Should().BeSameAs(customClock);
     }
 
     [Fact]

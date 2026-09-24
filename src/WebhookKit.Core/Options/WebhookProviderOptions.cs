@@ -13,7 +13,13 @@ public sealed class WebhookProviderOptions
     /// <summary>Retry settings.</summary>
     public WebhookRetryOptions Retry { get; } = new();
 
-    /// <summary>Header carrying the event ID. Null defers to JSON/custom extractors (Tasks 08/09).</summary>
+    /// <summary>Provider-specific body limit; <see langword="null"/> uses the global limit.</summary>
+    public long? MaxRequestBodySizeBytes { get; set; }
+
+    /// <summary>Whether a SHA-256 body hash may be used when no event ID is available.</summary>
+    public bool AllowBodyHashFallback { get; set; }
+
+    /// <summary>Header carrying the event ID. Null defers to JSON or custom extractors.</summary>
     public string? EventIdHeaderName { get; set; }
 
     /// <summary>Header carrying the event type. Null defers to JSON/custom extractors.</summary>

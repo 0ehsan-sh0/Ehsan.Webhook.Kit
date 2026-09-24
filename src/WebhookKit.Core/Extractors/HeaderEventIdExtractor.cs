@@ -12,14 +12,21 @@ public sealed class HeaderEventIdExtractor : IWebhookEventIdExtractor
 {
     private readonly IOptions<WebhookKitOptions> _options;
 
+    /// <summary>Creates an extractor using provider-specific header configuration.</summary>
+    /// <param name="options">WebhookKit options containing the event ID header name.</param>
     public HeaderEventIdExtractor(IOptions<WebhookKitOptions> options)
     {
         _options = options ?? throw new ArgumentNullException(nameof(options));
     }
 
+    /// <summary>Extracts the first non-empty configured event ID header value.</summary>
+    /// <param name="context">Request metadata and exact body.</param>
+    /// <param name="cancellationToken">Token reserved for extractor cancellation.</param>
+    /// <returns>The event ID, or <see langword="null"/> when the header is not configured or present.</returns>
     public ValueTask<string?> ExtractAsync(WebhookVerificationContext context, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(context);
+        cancellationToken.ThrowIfCancellationRequested();
 
         if (!_options.Value.Providers.TryGetValue(context.Provider, out var providerOptions) ||
             string.IsNullOrWhiteSpace(providerOptions.EventIdHeaderName))

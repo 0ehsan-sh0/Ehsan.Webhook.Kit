@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  pull_request: {}
+  push:
+    branches:
+      - master
+      - main
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    services:
+      redis:
+        image: redis:7.4.5@sha256:90e7a336d044f1abc9e9dbc05d65566850896d11453bbd1dd0fb7e5059f0e8fb
+        ports:
+          - "127.0.0.1:6379:6379"
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Set up .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+        with:
+          dotnet-version: |
+            8.0.x
+            9.0.x
+            10.0.x
+      - name: Restore
+        shell: bash
+        run: dotnet restore "Ehsan.Webhook.Kit.slnx"
+      - name: Release build
+        shell: bash
+        run: dotnet build "Ehsan.Webhook.Kit.slnx" --configuration Release --no-restore -p:TreatWarningsAsErrors=true
+      - name: Test net8.0
+        shell: bash
+        env:
+          WEBHOOKKIT_REDIS_CONNECTION: 127.0.0.1:6379
+        run: dotnet test "Ehsan.Webhook.Kit.slnx" --configuration Release --framework net8.0 --no-restore --no-build
+      - name: Verify formatting
+        shell: bash
+        run: dotnet format "Ehsan.Webhook.Kit.slnx" --verify-no-changes --no-restore --verbosity minimal
+      - name: Validate packages
+        shell: pwsh
+        env:
+          WEBHOOKKIT_REDIS_CONNECTION: 127.0.0.1:6379
+        run: ./scripts/validate-packages.ps1 -Configuration Release

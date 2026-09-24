@@ -4,9 +4,12 @@
     <TargetFramework>net8.0</TargetFramework>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
+    <NoWarn>$(NoWarn);CA1707</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\WebhookKit.Abstractions\WebhookKit.Abstractions.csproj" />
+    <ProjectReference Include="..\..\src\WebhookKit.Core\WebhookKit.Core.csproj" />
     <ProjectReference Include="..\..\src\WebhookKit.AspNetCore\WebhookKit.AspNetCore.csproj" />
     <ProjectReference Include="..\..\src\WebhookKit.Redis\WebhookKit.Redis.csproj" />
     <ProjectReference Include="..\..\src\WebhookKit.EntityFrameworkCore\WebhookKit.EntityFrameworkCore.csproj" />

@@ -14,4 +14,9 @@
     <ProjectReference Include="..\WebhookKit.Core\WebhookKit.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="WebhookKit.AspNetCore.Tests" />
+    <InternalsVisibleTo Include="WebhookKit.IntegrationTests" />
+  </ItemGroup>
+
 </Project>

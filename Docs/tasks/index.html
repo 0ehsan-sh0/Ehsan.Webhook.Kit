@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WebhookKit completion roadmap</title>
+  <style>
+    :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+    body { max-width: 1100px; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }
+    h1 { margin-bottom: .25rem; }
+    .summary { display: flex; gap: 1rem; flex-wrap: wrap; margin: 1rem 0 1.5rem; }
+    .card { border: 1px solid #8886; border-radius: .5rem; padding: .75rem 1rem; }
+    .complete { color: #176b35; font-weight: 700; }
+    .pending { color: #9a5b00; font-weight: 700; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border-bottom: 1px solid #8885; padding: .5rem; text-align: left; vertical-align: top; }
+    th { background: #8882; }
+    code { font-family: ui-monospace, monospace; }
+    .note { border-left: .25rem solid #8888; padding-left: 1rem; }
+  </style>
+</head>
+<body>
+  <main>
+    <p><a href="../../README.md">README</a> · <a href="../security-audit.md">Security audit</a> · <a href="../verification.md">Verification notes</a></p>
+    <h1>WebhookKit completion roadmap</h1>
+    <p>Status reflects the delivered source, committed verification evidence, and the current workspace boundary. It does not imply package publication, release tagging, or external handoff; Task 36 records the authorized local real Redis execution.</p>
+    <div class="summary">
+      <div class="card"><span class="complete">36 complete</span><br>Tasks 01–36</div>
+      <div class="card"><span class="pending">1 pending</span><br>Task 37</div>
+      <div class="card"><strong>0 in progress</strong><br>Current documentation work is complete</div>
+    </div>
+    <p class="note">Tasks 01–09 are supported by the implemented foundations, tests, accepted ADRs, and the delivered ADR 0010 production signing/replay behavior. Tasks 10–29 have committed verification evidence. Task 30 is the user-documentation package verified in this workspace. Tasks 31–33 are supported by their committed package, packing, and CI evidence; Task 34 is supported by the public API review, ADR 0013, focused API tests, package verification, and current build/test evidence. Task 35 records the ShortRun benchmark baseline and its confidence caveat. Task 36 records the locally validated v1.0.0 candidate, including live Redis evidence, package hashes, sample checks, and known limitations. Task 37 remains pending; remote CI execution, package publication, release tagging, and external release handoff are not claimed.</p>
+    <table>
+      <thead><tr><th>Task</th><th>Workstream</th><th>Status</th><th>Evidence</th></tr></thead>
+      <tbody>
+        <tr><td>01</td><td><a href="task-01.html">Solution and package architecture</a></td><td class="complete">Complete</td><td>Architecture ADR and solution projects</td></tr>
+        <tr><td>02</td><td><a href="task-02.html">Foundations core domain</a></td><td class="complete">Complete</td><td>Domain contracts and tests</td></tr>
+        <tr><td>03</td><td><a href="task-03.html">Configuration and clock</a></td><td class="complete">Complete</td><td>Options validation and clock tests</td></tr>
+        <tr><td>04</td><td><a href="task-04.html">Ingestion and verification</a></td><td class="complete">Complete</td><td>Body reader, HMAC, timestamp, and extractor tests</td></tr>
+        <tr><td>05</td><td><a href="task-05.html">Handler boundary and execution modes</a></td><td class="complete">Complete</td><td>ADR 0005 and context/handler tests</td></tr>
+        <tr><td>06</td><td><a href="task-06.html">Deduplication claims and Event ID fallback</a></td><td class="complete">Complete</td><td>ADR 0006 and deduplication tests</td></tr>
+        <tr><td>07</td><td><a href="task-07.html">Processing outcomes, recovery, and responses</a></td><td class="complete">Complete</td><td>ADR 0007 and outcome tests</td></tr>
+        <tr><td>08</td><td><a href="task-08.html">Claim storage, retry policy, and retention</a></td><td class="complete">Complete</td><td>ADR 0008 and storage tests</td></tr>
+        <tr><td>09</td><td><a href="task-09.html">Provider customization and payload validation</a></td><td class="complete">Complete</td><td>ADR 0009/0010 and extraction tests</td></tr>
+        <tr><td>10</td><td><a href="task-10.html">In-memory store and store contracts</a></td><td class="complete">Complete</td><td><code>58bca91</code></td></tr>
+        <tr><td>11</td><td><a href="task-11.html">Deduplication keying and pipeline</a></td><td class="complete">Complete</td><td><code>35b00ac</code></td></tr>
+        <tr><td>12</td><td><a href="task-12.html">Hidden raw-body ownership and typed payload access</a></td><td class="complete">Complete</td><td><code>a394b4a</code></td></tr>
+        <tr><td>13</td><td><a href="task-13.html">System.Text.Json deserialization</a></td><td class="complete">Complete</td><td><code>9798b15</code></td></tr>
+        <tr><td>14</td><td><a href="task-14.html">Handler registry and processor</a></td><td class="complete">Complete</td><td><code>f3899b9</code></td></tr>
+        <tr><td>15</td><td><a href="task-15.html">Minimal API endpoint and shared ingestion</a></td><td class="complete">Complete</td><td><code>a600b44</code> through <code>191b8b7</code></td></tr>
+        <tr><td>16</td><td><a href="task-16.html">MVC endpoint support</a></td><td class="complete">Complete</td><td><code>3b99a75</code></td></tr>
+        <tr><td>17</td><td><a href="task-17.html">Configurable HTTP response model</a></td><td class="complete">Complete</td><td><code>b08bc52</code></td></tr>
+        <tr><td>18</td><td><a href="task-18.html">Structured logging</a></td><td class="complete">Complete</td><td><code>1ab570d</code></td></tr>
+        <tr><td>19</td><td><a href="task-19.html">ActivitySource and correlation diagnostics</a></td><td class="complete">Complete</td><td><code>c182779</code></td></tr>
+        <tr><td>20</td><td><a href="task-20.html">Bounded in-process queue</a></td><td class="complete">Complete</td><td><code>204896a</code></td></tr>
+        <tr><td>21</td><td><a href="task-21.html">Hosted worker and recovery loop</a></td><td class="complete">Complete</td><td><code>3a6f85d</code></td></tr>
+        <tr><td>22</td><td><a href="task-22.html">Retry classification and exponential backoff</a></td><td class="complete">Complete</td><td><code>404b95d</code></td></tr>
+        <tr><td>23</td><td><a href="task-23.html">Redis store and atomic TTL claims</a></td><td class="complete">Complete</td><td><code>2f07625</code>; Task 36 real Redis validation</td></tr>
+        <tr><td>24</td><td><a href="task-24.html">EF Core configuration and store</a></td><td class="complete">Complete</td><td><code>ae648cb</code>, <code>f943f29</code></td></tr>
+        <tr><td>25</td><td><a href="task-25.html">Consumer testing package</a></td><td class="complete">Complete</td><td><code>c6bf4dd</code></td></tr>
+        <tr><td>26</td><td><a href="task-26.html">Security audit</a></td><td class="complete">Complete</td><td><code>b48446f</code></td></tr>
+        <tr><td>27</td><td><a href="task-27.html">Concurrency stress tests</a></td><td class="complete">Complete</td><td><code>c25c4d0</code>; Task 36 live Redis rows</td></tr>
+        <tr><td>28</td><td><a href="task-28.html">Full integration suite</a></td><td class="complete">Complete</td><td><code>8ee5fd0</code></td></tr>
+        <tr><td>29</td><td><a href="task-29.html">Runnable samples</a></td><td class="complete">Complete</td><td><code>897cdab</code></td></tr>
+        <tr><td>30</td><td><a href="task-30.html">User README and documentation</a></td><td class="complete">Complete</td><td>Fresh documentation verification in this workspace</td></tr>
+        <tr><td>31</td><td><a href="task-31.html">Package metadata and documentation generation</a></td><td class="complete">Complete</td><td><code>d16c840</code></td></tr>
+        <tr><td>32</td><td><a href="task-32.html">Package packing and inspection</a></td><td class="complete">Complete</td><td><code>4c3e96a</code></td></tr>
+        <tr><td>33</td><td><a href="task-33.html">CI and protected release workflows</a></td><td class="complete">Complete</td><td><code>c3ddf40</code></td></tr>
+        <tr><td>34</td><td><a href="task-34.html">Public API review</a></td><td class="complete">Complete</td><td><code>2c6d133</code>; ADR 0013 and Task 34 report</td></tr>
+        <tr><td>35</td><td><a href="task-35.html">BenchmarkDotNet baselines</a></td><td class="complete">Complete</td><td><code>f83fb3b</code>; ShortRun baseline and caveat</td></tr>
+        <tr><td>36</td><td><a href="task-36.html">v1.0.0 release-candidate validation</a></td><td class="complete">Complete</td><td><code>6543d46</code>; release-candidate checklist</td></tr>
+        <tr><td>37</td><td><a href="task-37.html">External release preparation without publishing</a></td><td class="pending">Pending</td><td>No completion claim</td></tr>
+      </tbody>
+    </table>
+  </main>
+</body>
+</html>

@@ -1,4 +1,6 @@
 // Copyright (c) Ehsan. Licensed under the MIT License.
+using System.Text.Json;
+
 namespace WebhookKit.Core.Options;
 
 /// <summary>Root WebhookKit options.</summary>
@@ -13,7 +15,26 @@ public sealed class WebhookKitOptions
     /// <summary>Global maximum request body size in bytes. Exceeding requests map to 413.</summary>
     public long MaxRequestBodySizeBytes { get; set; } = DefaultMaxRequestBodySizeBytes;
 
-    /// <summary>Register a provider. Throws <see cref="WebhookConfigurationException"/> on null/empty/duplicate names.</summary>
+    /// <summary>Storage settings shared by all providers.</summary>
+    public WebhookStorageOptions Storage { get; set; } = new();
+
+    /// <summary>Queue settings for asynchronous admission.</summary>
+    public WebhookQueueOptions Queue { get; set; } = new();
+
+    /// <summary>Background worker and recovery settings.</summary>
+    public WebhookBackgroundOptions Background { get; set; } = new();
+
+    /// <summary>JSON settings used by the default deserializer; the options object is caller-owned.</summary>
+    public JsonSerializerOptions JsonSerializerOptions { get; set; } = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
+
+    /// <summary>Registers a provider configuration.</summary>
+    /// <param name="name">Non-empty provider name; names are case-insensitive.</param>
+    /// <param name="configure">Callback that populates the new provider options.</param>
+    /// <returns>This options instance for fluent configuration.</returns>
+    /// <exception cref="WebhookConfigurationException">The name is empty or already registered.</exception>
     public WebhookKitOptions AddProvider(string name, Action<WebhookProviderOptions> configure)
     {
         ArgumentNullException.ThrowIfNull(configure);

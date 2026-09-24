@@ -4,7 +4,7 @@ namespace WebhookKit.Core.Options;
 /// <summary>Replay-window settings for one provider.</summary>
 public sealed class WebhookTimestampOptions
 {
-    /// <summary>Header carrying the provider timestamp. Null disables timestamp validation.</summary>
+    /// <summary>Header carrying the provider timestamp.</summary>
     public string? HeaderName { get; set; }
 
     /// <summary>Acceptable clock skew in either direction. Default 5 minutes.</summary>

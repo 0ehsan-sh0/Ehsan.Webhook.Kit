@@ -59,7 +59,7 @@ public sealed class HmacSignatureVerifierTests
         {
             Provider = "unknown",
             RawBody = Encoding.UTF8.GetBytes("{}"),
-            Headers = new Dictionary<string, string[]>()
+            Headers = new Dictionary<string, IReadOnlyList<string>>()
         };
 
         var result = await verifier.VerifyAsync(context);
@@ -75,7 +75,7 @@ public sealed class HmacSignatureVerifierTests
         {
             Provider = ProviderName,
             RawBody = Encoding.UTF8.GetBytes("{}"),
-            Headers = new Dictionary<string, string[]>()
+            Headers = new Dictionary<string, IReadOnlyList<string>>()
         };
 
         var result = await verifier.VerifyAsync(context);
@@ -91,7 +91,7 @@ public sealed class HmacSignatureVerifierTests
         {
             Provider = ProviderName,
             RawBody = Encoding.UTF8.GetBytes("{}"),
-            Headers = new Dictionary<string, string[]>
+            Headers = new Dictionary<string, IReadOnlyList<string>>
             {
                 [HeaderName] = ["   "]
             }
@@ -110,7 +110,7 @@ public sealed class HmacSignatureVerifierTests
         {
             Provider = ProviderName,
             RawBody = Encoding.UTF8.GetBytes("{}"),
-            Headers = new Dictionary<string, string[]>
+            Headers = new Dictionary<string, IReadOnlyList<string>>
             {
                 [HeaderName] = ["not-a-valid-hex-or-base64!@#$"]
             }
@@ -118,7 +118,7 @@ public sealed class HmacSignatureVerifierTests
 
         var result = await verifier.VerifyAsync(context);
         result.IsValid.Should().BeFalse();
-        result.FailureReason.Should().Contain("invalid");
+        result.FailureReason.Should().Be("Signature verification failed.");
     }
 
     [Fact]
@@ -132,7 +132,7 @@ public sealed class HmacSignatureVerifierTests
         {
             Provider = ProviderName,
             RawBody = body,
-            Headers = new Dictionary<string, string[]>
+            Headers = new Dictionary<string, IReadOnlyList<string>>
             {
                 [HeaderName] = [signature]
             }
@@ -154,7 +154,7 @@ public sealed class HmacSignatureVerifierTests
         {
             Provider = ProviderName,
             RawBody = body,
-            Headers = new Dictionary<string, string[]>
+            Headers = new Dictionary<string, IReadOnlyList<string>>
             {
                 [HeaderName] = [signature]
             }
@@ -180,7 +180,7 @@ public sealed class HmacSignatureVerifierTests
         {
             Provider = ProviderName,
             RawBody = body,
-            Headers = new Dictionary<string, string[]>
+            Headers = new Dictionary<string, IReadOnlyList<string>>
             {
                 [HeaderName] = [signature]
             }
@@ -206,7 +206,7 @@ public sealed class HmacSignatureVerifierTests
         {
             Provider = ProviderName,
             RawBody = body,
-            Headers = new Dictionary<string, string[]>
+            Headers = new Dictionary<string, IReadOnlyList<string>>
             {
                 [HeaderName] = [signature]
             }
@@ -230,7 +230,7 @@ public sealed class HmacSignatureVerifierTests
         {
             Provider = ProviderName,
             RawBody = body,
-            Headers = new Dictionary<string, string[]>
+            Headers = new Dictionary<string, IReadOnlyList<string>>
             {
                 [HeaderName] = [$"{prefix}{hexSignature}"]
             }
@@ -238,6 +238,26 @@ public sealed class HmacSignatureVerifierTests
 
         var result = await verifier.VerifyAsync(context);
         result.IsValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public void VerifyAsync_ComparesEveryConfiguredSecretBeforeReturningMatch()
+    {
+        var sourcePath = Path.GetFullPath(Path.Combine(
+            AppContext.BaseDirectory,
+            "..",
+            "..",
+            "..",
+            "..",
+            "..",
+            "src",
+            "WebhookKit.Core",
+            "Verifiers",
+            "HmacSignatureVerifier.cs"));
+        var source = File.ReadAllText(sourcePath);
+
+        source.Should().Contain("valid |= CryptographicOperations.FixedTimeEquals(computedHash, expectedBytes);");
+        source.Should().NotContain("if (CryptographicOperations.FixedTimeEquals(computedHash, expectedBytes))");
     }
 
     [Fact]
@@ -260,13 +280,38 @@ public sealed class HmacSignatureVerifierTests
         {
             Provider = ProviderName,
             RawBody = body,
-            Headers = new Dictionary<string, string[]>
+            Headers = new Dictionary<string, IReadOnlyList<string>>
             {
                 [HeaderName] = [signature]
             }
         };
 
         var result = await verifier.VerifyAsync(context);
+        result.IsValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task VerifyAsync_AdditionalSecretWithoutPrimary_Succeeds()
+    {
+        var verifier = CreateVerifier(provider =>
+        {
+            provider.Signature.Secret = null!;
+            provider.Signature.AdditionalSecrets.Add(Secret);
+        });
+        byte[] body = Encoding.UTF8.GetBytes("{\"event\":\"transfer\"}");
+        string signature = ComputeSignature(body, Secret, WebhookHashAlgorithm.HmacSha256, WebhookSignatureEncoding.Hex);
+        var context = new WebhookVerificationContext
+        {
+            Provider = ProviderName,
+            RawBody = body,
+            Headers = new Dictionary<string, IReadOnlyList<string>>
+            {
+                [HeaderName] = [signature]
+            }
+        };
+
+        var result = await verifier.VerifyAsync(context);
+
         result.IsValid.Should().BeTrue();
     }
 
@@ -281,7 +326,7 @@ public sealed class HmacSignatureVerifierTests
         {
             Provider = ProviderName,
             RawBody = body,
-            Headers = new Dictionary<string, string[]>
+            Headers = new Dictionary<string, IReadOnlyList<string>>
             {
                 [HeaderName] = [signature]
             }
@@ -289,7 +334,7 @@ public sealed class HmacSignatureVerifierTests
 
         var result = await verifier.VerifyAsync(context);
         result.IsValid.Should().BeFalse();
-        result.FailureReason.Should().Be("Signature mismatch.");
+        result.FailureReason.Should().Be("Signature verification failed.");
     }
 
     [Fact]
@@ -303,7 +348,7 @@ public sealed class HmacSignatureVerifierTests
         {
             Provider = ProviderName,
             RawBody = emptyBody,
-            Headers = new Dictionary<string, string[]>
+            Headers = new Dictionary<string, IReadOnlyList<string>>
             {
                 [HeaderName] = [signature]
             }
@@ -324,7 +369,7 @@ public sealed class HmacSignatureVerifierTests
         {
             Provider = ProviderName,
             RawBody = unicodeBody,
-            Headers = new Dictionary<string, string[]>
+            Headers = new Dictionary<string, IReadOnlyList<string>>
             {
                 [HeaderName] = [signature]
             }
