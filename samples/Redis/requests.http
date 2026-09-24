@@ -1,0 +1,65 @@
+@baseUrl = http://localhost:50563
+@provider = sample-provider
+@eventId = evt-order-1001
+@eventType = order.created
+@timestamp = REPLACE_WITH_CURRENT_UNIX_SECONDS
+@signature = REPLACE_WITH_CURRENT_HMAC_SHA256
+@badSignature = 0000000000000000000000000000000000000000000000000000000000000000
+@body = {"orderId":"ord_1001","customerId":"cus_2001","amount":1250}
+
+# Environment: $env:WEBHOOKKIT_PROVIDER_SECRET = "<replace-me>"
+# Environment: $env:WEBHOOKKIT_REDIS_CONNECTION = "localhost:6379"
+# Run: dotnet run --project "samples\Redis\Redis.csproj" --configuration Release --no-launch-profile --urls http://localhost:50563
+# Generate current values in PowerShell immediately before sending:
+# $body = '{"orderId":"ord_1001","customerId":"cus_2001","amount":1250}'
+# $timestamp = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+# $key = [Text.Encoding]::UTF8.GetBytes($env:WEBHOOKKIT_PROVIDER_SECRET)
+# $hmac = [Security.Cryptography.HMACSHA256]::new($key)
+# $hash = $hmac.ComputeHash([Text.Encoding]::UTF8.GetBytes($body))
+# $signature = (($hash | ForEach-Object { $_.ToString('x2') }) -join '')
+# $hmac.Dispose()
+# Copy the output values into @timestamp and @signature. The signature covers only the exact body bytes.
+
+### Valid signed asynchronous request; expected 202
+POST {{baseUrl}}/webhooks/sample
+Content-Type: application/json
+X-Webhook-Provider: {{provider}}
+X-Webhook-Event-Id: {{eventId}}
+X-Webhook-Event-Type: {{eventType}}
+X-Webhook-Timestamp: {{timestamp}}
+X-Webhook-Signature: {{signature}}
+
+{{body}}
+
+### Duplicate delivery; expected 202 and no second handler execution
+POST {{baseUrl}}/webhooks/sample
+Content-Type: application/json
+X-Webhook-Provider: {{provider}}
+X-Webhook-Event-Id: {{eventId}}
+X-Webhook-Event-Type: {{eventType}}
+X-Webhook-Timestamp: {{timestamp}}
+X-Webhook-Signature: {{signature}}
+
+{{body}}
+
+### Expected rejection: tampered signature; expected 401
+POST {{baseUrl}}/webhooks/sample
+Content-Type: application/json
+X-Webhook-Provider: {{provider}}
+X-Webhook-Event-Id: evt-order-tampered
+X-Webhook-Event-Type: {{eventType}}
+X-Webhook-Timestamp: {{timestamp}}
+X-Webhook-Signature: {{badSignature}}
+
+{{body}}
+
+### Expected rejection: expired timestamp; expected 400
+POST {{baseUrl}}/webhooks/sample
+Content-Type: application/json
+X-Webhook-Provider: {{provider}}
+X-Webhook-Event-Id: evt-order-expired
+X-Webhook-Event-Type: {{eventType}}
+X-Webhook-Timestamp: 1
+X-Webhook-Signature: {{signature}}
+
+{{body}}
