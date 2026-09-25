@@ -2,8 +2,8 @@
 
 > Provider-agnostic webhook infrastructure for ASP.NET Core — HMAC verification, atomic deduplication, retry, and pluggable storage in one kit.
 
-[![NuGet](https://img.shields.io/nuget/v/WebhookKit.AspNetCore.svg?label=WebhookKit.AspNetCore)](https://www.nuget.org/packages/WebhookKit.AspNetCore)
-[![NuGet](https://img.shields.io/nuget/v/WebhookKit.Core.svg?label=WebhookKit.Core)](https://www.nuget.org/packages/WebhookKit.Core)
+[![NuGet](https://img.shields.io/nuget/v/Ehsan.WebhookKit.AspNetCore.svg?label=Ehsan.WebhookKit.AspNetCore)](https://www.nuget.org/packages/Ehsan.WebhookKit.AspNetCore)
+[![NuGet](https://img.shields.io/nuget/v/Ehsan.WebhookKit.Core.svg?label=Ehsan.WebhookKit.Core)](https://www.nuget.org/packages/Ehsan.WebhookKit.Core)
 [![CI](https://github.com/0ehsan-sh0/Ehsan.Webhook.Kit/actions/workflows/ci.yml/badge.svg)](https://github.com/0ehsan-sh0/Ehsan.Webhook.Kit/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE.txt)
 
@@ -28,17 +28,17 @@ WebhookKit wires all of that up with a single `AddWebhookKit` call and a typed h
 
 | Package | Purpose | Install |
 |---|---|---|
-| `WebhookKit.AspNetCore` | Minimal API & MVC integration (**start here**) | `dotnet add package WebhookKit.AspNetCore` |
-| `WebhookKit.Core` | HMAC verification, in-memory store, retry engine | pulled in automatically |
-| `WebhookKit.Abstractions` | Shared contracts and interfaces | pulled in automatically |
-| `WebhookKit.Redis` | Redis-backed durable store | `dotnet add package WebhookKit.Redis` |
-| `WebhookKit.EntityFrameworkCore` | EF Core store | `dotnet add package WebhookKit.EntityFrameworkCore` |
-| `WebhookKit.Testing` | Test helpers — fake clock, signed request builder | `dotnet add package WebhookKit.Testing` |
+| `Ehsan.WebhookKit.AspNetCore` | Minimal API & MVC integration (**start here**) | `dotnet add package Ehsan.WebhookKit.AspNetCore` |
+| `Ehsan.WebhookKit.Core` | HMAC verification, in-memory store, retry engine | pulled in automatically |
+| `Ehsan.WebhookKit.Abstractions` | Shared contracts and interfaces | pulled in automatically |
+| `Ehsan.WebhookKit.Redis` | Redis-backed durable store | `dotnet add package Ehsan.WebhookKit.Redis` |
+| `Ehsan.WebhookKit.EntityFrameworkCore` | EF Core store | `dotnet add package Ehsan.WebhookKit.EntityFrameworkCore` |
+| `Ehsan.WebhookKit.Testing` | Test helpers — fake clock, signed request builder | `dotnet add package Ehsan.WebhookKit.Testing` |
 
 Most applications only need one install command:
 
 ```bash
-dotnet add package WebhookKit.AspNetCore
+dotnet add package Ehsan.WebhookKit.AspNetCore
 ```
 
 ---
@@ -50,7 +50,7 @@ Five steps from zero to a verified, deduplicated webhook endpoint.
 ### 1. Install
 
 ```bash
-dotnet add package WebhookKit.AspNetCore
+dotnet add package Ehsan.WebhookKit.AspNetCore
 ```
 
 ### 2. Register services
@@ -179,8 +179,8 @@ builder.Services.AddWebhookKit(options => { ... });
 
 Install the package, then call `AddWebhookKitRedis` **after** `AddWebhookKit`:
 
-```csharp
-dotnet add package WebhookKit.Redis
+```bash
+dotnet add package Ehsan.WebhookKit.Redis
 ```
 
 ```csharp
@@ -199,7 +199,7 @@ builder.Services.AddWebhookKitRedis(
 Install the package and the EF provider for your database:
 
 ```bash
-dotnet add package WebhookKit.EntityFrameworkCore
+dotnet add package Ehsan.WebhookKit.EntityFrameworkCore
 dotnet add package Microsoft.EntityFrameworkCore.Sqlite   # or SqlServer, Npgsql, …
 ```
 
@@ -323,7 +323,7 @@ Error responses use `application/problem+json`. They never echo secrets, raw bod
 ## Testing helpers
 
 ```bash
-dotnet add package WebhookKit.Testing
+dotnet add package Ehsan.WebhookKit.Testing
 ```
 
 Build deterministic, signed test requests without a running server:

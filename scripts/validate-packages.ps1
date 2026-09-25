@@ -21,18 +21,18 @@ $script:InspectionDirectory = $null
 $script:TempRoot = $null
 $script:ExpectedPackages = @(
     [PSCustomObject]@{
-        Id = 'WebhookKit.Abstractions'
+        Id = 'Ehsan.WebhookKit.Abstractions'
         Project = 'src\WebhookKit.Abstractions\WebhookKit.Abstractions.csproj'
         Assembly = 'WebhookKit.Abstractions'
         Dependencies = @{}
         FrameworkReferences = @{}
     }
     [PSCustomObject]@{
-        Id = 'WebhookKit.Core'
+        Id = 'Ehsan.WebhookKit.Core'
         Project = 'src\WebhookKit.Core\WebhookKit.Core.csproj'
         Assembly = 'WebhookKit.Core'
         Dependencies = @{
-            'WebhookKit.Abstractions' = '1.0.0'
+            'Ehsan.WebhookKit.Abstractions' = '1.0.0'
             'Microsoft.Extensions.DependencyInjection.Abstractions' = '8.0.2'
             'Microsoft.Extensions.Hosting.Abstractions' = '8.0.1'
             'Microsoft.Extensions.Logging.Abstractions' = '8.0.2'
@@ -41,22 +41,22 @@ $script:ExpectedPackages = @(
         FrameworkReferences = @{}
     }
     [PSCustomObject]@{
-        Id = 'WebhookKit.AspNetCore'
+        Id = 'Ehsan.WebhookKit.AspNetCore'
         Project = 'src\WebhookKit.AspNetCore\WebhookKit.AspNetCore.csproj'
         Assembly = 'WebhookKit.AspNetCore'
         Dependencies = @{
-            'WebhookKit.Core' = '1.0.0'
+            'Ehsan.WebhookKit.Core' = '1.0.0'
         }
         FrameworkReferences = @{
             'Microsoft.AspNetCore.App' = $true
         }
     }
     [PSCustomObject]@{
-        Id = 'WebhookKit.EntityFrameworkCore'
+        Id = 'Ehsan.WebhookKit.EntityFrameworkCore'
         Project = 'src\WebhookKit.EntityFrameworkCore\WebhookKit.EntityFrameworkCore.csproj'
         Assembly = 'WebhookKit.EntityFrameworkCore'
         Dependencies = @{
-            'WebhookKit.Abstractions' = '1.0.0'
+            'Ehsan.WebhookKit.Abstractions' = '1.0.0'
             'Microsoft.EntityFrameworkCore' = '8.0.11'
             'Microsoft.EntityFrameworkCore.Relational' = '8.0.11'
             'Microsoft.Extensions.DependencyInjection' = '8.0.1'
@@ -67,11 +67,11 @@ $script:ExpectedPackages = @(
         FrameworkReferences = @{}
     }
     [PSCustomObject]@{
-        Id = 'WebhookKit.Redis'
+        Id = 'Ehsan.WebhookKit.Redis'
         Project = 'src\WebhookKit.Redis\WebhookKit.Redis.csproj'
         Assembly = 'WebhookKit.Redis'
         Dependencies = @{
-            'WebhookKit.Abstractions' = '1.0.0'
+            'Ehsan.WebhookKit.Abstractions' = '1.0.0'
             'Microsoft.Extensions.DependencyInjection' = '8.0.1'
             'Microsoft.Extensions.DependencyInjection.Abstractions' = '8.0.2'
             'Microsoft.Extensions.Logging.Abstractions' = '8.0.2'
@@ -81,11 +81,11 @@ $script:ExpectedPackages = @(
         FrameworkReferences = @{}
     }
     [PSCustomObject]@{
-        Id = 'WebhookKit.Testing'
+        Id = 'Ehsan.WebhookKit.Testing'
         Project = 'src\WebhookKit.Testing\WebhookKit.Testing.csproj'
         Assembly = 'WebhookKit.Testing'
         Dependencies = @{
-            'WebhookKit.Core' = '1.0.0'
+            'Ehsan.WebhookKit.Core' = '1.0.0'
             'Microsoft.AspNetCore.Mvc.Testing' = '8.0.11'
             'Microsoft.Extensions.DependencyInjection' = '8.0.1'
             'Microsoft.Extensions.DependencyInjection.Abstractions' = '8.0.2'
@@ -584,8 +584,8 @@ function Test-ForbiddenDependencyId {
         return 'test or benchmark dependency'
     }
 
-    if ($lower -eq 'microsoft.aspnetcore.mvc.testing' -and $PackageId -ine 'WebhookKit.Testing') {
-        return 'ASP.NET MVC Testing dependency outside WebhookKit.Testing'
+    if ($lower -eq 'microsoft.aspnetcore.mvc.testing' -and $PackageId -ine 'Ehsan.WebhookKit.Testing') {
+        return 'ASP.NET MVC Testing dependency outside Ehsan.WebhookKit.Testing'
     }
 
     return $null
