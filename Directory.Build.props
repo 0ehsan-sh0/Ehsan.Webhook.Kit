@@ -24,7 +24,7 @@
     <Description Condition="'$(Description)' == ''">Webhook verification, deduplication, and processing components for .NET webhook consumers.</Description>
     <PackageTags Condition="'$(PackageTags)' == ''">webhook;webhooks;security;aspnetcore</PackageTags>
     <WebhookKitDocumentationDefault Condition="'$(GenerateDocumentationFile)' == ''">true</WebhookKitDocumentationDefault>
-    <PackageIcon>icon.png</PackageIcon>
+    <PackageIcon Condition="Exists('$(MSBuildThisFileDirectory)icon.png')">icon.png</PackageIcon>
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 

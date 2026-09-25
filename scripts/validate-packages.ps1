@@ -821,6 +821,9 @@ function Get-NupkgExpectedEntries {
         'README.md',
         ($ExpectedPackage.Id + '.nuspec')
     )
+    if (Test-Path -LiteralPath (Join-Path -Path $PSScriptRoot -ChildPath '..\icon.png')) {
+        $entries += 'icon.png'
+    }
     foreach ($framework in $script:TargetFrameworks) {
         $entries += ('lib/' + $framework + '/' + $ExpectedPackage.Assembly + '.dll')
         $entries += ('lib/' + $framework + '/' + $ExpectedPackage.Assembly + '.xml')
@@ -1148,10 +1151,15 @@ function Test-PackageSet {
 }
 
 function Invoke-PackProjects {
-    $dotnet = Get-Command dotnet -CommandType Application -ErrorAction SilentlyContinue
-    if ($null -eq $dotnet) {
+    $dotnetCommand = Get-Command dotnet -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($null -eq $dotnetCommand) {
         Add-ValidationError 'The dotnet executable is required for package packing.'
         return
+    }
+
+    $dotnetPath = if (-not [string]::IsNullOrWhiteSpace($dotnetCommand.Source)) { [string]$dotnetCommand.Source } else { [string]$dotnetCommand.Path }
+    if ([string]::IsNullOrWhiteSpace($dotnetPath)) {
+        $dotnetPath = [string]$dotnetCommand.Definition
     }
 
     foreach ($expectedPackage in $script:ExpectedPackages) {
@@ -1177,7 +1185,7 @@ function Invoke-PackProjects {
         )
 
         try {
-            Invoke-ExternalCommand -FilePath $dotnet.Source -Arguments $arguments -Operation ('Packing ' + $expectedPackage.Id)
+            Invoke-ExternalCommand -FilePath $dotnetPath -Arguments $arguments -Operation ('Packing ' + $expectedPackage.Id)
             Write-Output ('Packed ' + $expectedPackage.Id + '.')
         }
         catch {
