@@ -28,15 +28,13 @@
     <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 
-  <!-- Embed the icon and README into every package from this repo -->
+  <!-- Embed the icon into every package.
+       README.md is embedded automatically by <PackageReadmeFile> — do NOT add it here again. -->
   <ItemGroup>
     <None Include="$(MSBuildThisFileDirectory)icon.png"
           Pack="true"
           PackagePath="\"
           Condition="Exists('$(MSBuildThisFileDirectory)icon.png')" />
-    <None Include="$(MSBuildThisFileDirectory)README.md"
-          Pack="true"
-          PackagePath="\" />
   </ItemGroup>
 
 </Project>
